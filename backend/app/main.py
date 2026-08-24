@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.api.routes.chat import router as chat_router
 from app.api.routes.location import router as location_router
+from app.api.routes.risk import router as risk_router
 from app.api.routes.weather import router as weather_router
 
 app = FastAPI(
@@ -26,3 +27,4 @@ async def health_check():
 app.include_router(weather_router)
 app.include_router(location_router)
 app.include_router(chat_router)
+app.include_router(risk_router)

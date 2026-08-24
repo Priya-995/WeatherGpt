@@ -114,6 +114,36 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_risk",
+            "description": (
+                "Compute a deterministic risk score and rule-based advisories for "
+                "a location. Call this when the user asks about safety, risk level, "
+                "travel advisories, farming recommendations (spraying, irrigation, "
+                "harvest), or heat/health precautions. "
+                "Returns: composite risk score (0–1), risk level (Low/Moderate/High/Critical), "
+                "plain-English reasons, and active advisory messages for citizen, "
+                "farmer, and heat contexts. "
+                "Always call search_location + get_weather first, then call this."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {
+                        "type": "number",
+                        "description": "Latitude in decimal degrees",
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": "Longitude in decimal degrees",
+                    },
+                },
+                "required": ["lat", "lon"],
+            },
+        },
+    },
 ]
 
 
@@ -132,13 +162,18 @@ CRITICAL RULES — you must follow these without exception:
    get_weather with the returned coordinates.
 4. If a location cannot be found, say so clearly and ask the user to clarify.
 5. If the weather data does not cover the requested time window, say so honestly.
+6. When the user asks about risk, safety, travel advisories, farming actions
+   (spraying, irrigation, harvest), or heat precautions — call get_risk after
+   get_weather to get the deterministic risk score and rule-based advisory text.
+   Quote the advisory message directly; it is already human-readable.
 
 INTENT CATEGORIES you handle:
   - current_weather   : real-time conditions at a location
   - forecast          : upcoming hours or days outlook
   - rain_query        : precipitation probability and amounts
-  - travel_advisory   : whether conditions are suitable for travel/outdoor activity
-  - farmer_advisory   : crop/irrigation guidance based on precipitation & temperature
+  - travel_advisory   : safety/travel guidance — use get_risk
+  - farmer_advisory   : spraying/irrigation/harvest guidance — use get_risk
+  - heat_advisory     : hydration/heat precautions — use get_risk
 
 ANSWER STYLE:
 - Be concise, friendly, and specific. Quote exact figures from the tool data.
@@ -146,4 +181,5 @@ ANSWER STYLE:
 - Use local time (the API returns local timestamps automatically).
 - For rain queries, always state the precipitation probability percentage AND
   the expected amount in mm, not just a vague "yes/no".
+- For advisory queries, quote the advisory title and message from get_risk results.
 """
