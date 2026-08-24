@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Alert, getAlertWebSocketUrl, getAlerts } from "@/lib/api";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const formatAlertType = (typeStr: string): string => {
   if (!typeStr) return "Weather Warning";
   const cleaned = typeStr.toLowerCase().replace(/_/g, " ");
@@ -12,24 +14,42 @@ const formatAlertType = (typeStr: string): string => {
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [liveNotification, setLiveNotification] = useState<string | null>(null);
 
+  const fetchAlertsData = async () => {
+    try {
+      const res = await getAlerts();
+      setAlerts(res.alerts || []);
+    } catch {
+      setError("Unable to load active weather alerts right now. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Fetch initial alerts
   useEffect(() => {
-    async function loadAlerts() {
-      try {
-        const res = await getAlerts();
-        setAlerts(res.alerts || []);
-      } catch {
-        setError("Unable to load active weather alerts right now. Please check your connection and try again.");
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadAlerts();
+    fetchAlertsData();
   }, []);
+
+  const handleRefreshFeed = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/alerts/refresh`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data.alerts || []);
+      }
+    } catch {
+      // fallback to refetching getAlerts
+      await fetchAlertsData();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // WebSocket Live Subscription
   useEffect(() => {
@@ -86,6 +106,30 @@ export default function AlertsPage() {
     return "bg-yellow-500/20 text-yellow-300 border-yellow-500/40";
   };
 
+  const renderSourceBadge = (source?: string) => {
+    const s = source || "IMD Live";
+    if (s.toLowerCase().includes("live")) {
+      return (
+        <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 text-[11px] px-2.5 py-0.5 rounded font-bold flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          IMD Live
+        </span>
+      );
+    }
+    if (s.toLowerCase().includes("mock")) {
+      return (
+        <span className="bg-amber-950/60 text-amber-400 border border-amber-800/80 text-[11px] px-2 py-0.5 rounded font-medium">
+          IMD Mock
+        </span>
+      );
+    }
+    return (
+      <span className="bg-slate-950 text-slate-400 border border-slate-800 text-[11px] px-2 py-0.5 rounded">
+        {s}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
@@ -95,28 +139,38 @@ export default function AlertsPage() {
             <span>🚨</span> Weather Alert Center
           </h1>
           <p className="text-sm text-slate-400">
-            Real-time emergency warnings and public safety bulletins.
+            Real-time IMD emergency warnings and public safety bulletins.
           </p>
         </div>
 
-        {/* Live WebSocket Status Indicator */}
-        <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
-          <span
-            className={`w-2.5 h-2.5 rounded-full ${
-              wsStatus === "connected"
-                ? "bg-emerald-500 animate-pulse"
+        {/* Live WebSocket Status & Manual Refresh */}
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={handleRefreshFeed}
+            disabled={refreshing}
+            className="text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 px-3 py-1.5 rounded-lg border border-blue-500/40 transition-colors font-medium flex items-center space-x-1"
+          >
+            <span>{refreshing ? "Refreshing..." : "🔄 Refresh IMD Feed"}</span>
+          </button>
+
+          <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                wsStatus === "connected"
+                  ? "bg-emerald-500 animate-pulse"
+                  : wsStatus === "connecting"
+                  ? "bg-amber-500"
+                  : "bg-red-500"
+              }`}
+            />
+            <span className="text-slate-300 font-medium">
+              {wsStatus === "connected"
+                ? "Live Feed Active"
                 : wsStatus === "connecting"
-                ? "bg-amber-500"
-                : "bg-red-500"
-            }`}
-          />
-          <span className="text-slate-300 font-medium">
-            {wsStatus === "connected"
-              ? "Live Feed Active"
-              : wsStatus === "connecting"
-              ? "Connecting to Feed..."
-              : "Feed Offline"}
-          </span>
+                ? "Connecting to Feed..."
+                : "Feed Offline"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -163,9 +217,7 @@ export default function AlertsPage() {
                     {formatAlertType(alert.alert_type)}
                   </span>
                 </div>
-                <div className="text-xs text-slate-400">
-                  Issued by: {alert.source || "Meteorological Department"}
-                </div>
+                {renderSourceBadge(alert.source)}
               </div>
 
               <div>

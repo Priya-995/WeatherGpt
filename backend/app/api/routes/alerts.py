@@ -6,7 +6,7 @@ Endpoints
 GET  /api/alerts                    → list active alerts (all locations)
 GET  /api/alerts?lat=..&lon=..      → list active alerts near a location
 POST /api/alerts/ingest             → add a new alert + broadcast via WebSocket
-                                      (for testing / future IMD feed ingestion)
+POST /api/alerts/refresh            → re-fetch live IMD CAP feed + broadcast via WebSocket
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from app.schemas.alert import Alert, AlertStoreResponse
 from app.services.alert_service import (
     add_alert,
+    fetch_and_store_alerts,
     get_active_alerts,
     get_active_alerts_for_location,
     normalise_alert,
@@ -34,9 +35,7 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
     response_model=AlertStoreResponse,
     summary="Get active weather alerts",
     description=(
-        "Returns all currently active (non-expired) alerts from the in-memory store. "
-        "Optionally filter by location with lat/lon (returns alerts within ~200 km). "
-        "Mock alerts are seeded on startup — Section 8 replaces these with live IMD data."
+        "Returns active alerts from live IMD CAP feed or fallback mock data."
     ),
 )
 async def list_alerts(
@@ -50,7 +49,7 @@ async def list_alerts(
     ),
 ) -> AlertStoreResponse:
     """
-    Returns active alerts.  With lat/lon, filters to those affecting the location.
+    Returns active alerts. With lat/lon, filters to those affecting the location.
     Without lat/lon, returns all active alerts.
     """
     if lat is not None and lon is not None:
@@ -62,15 +61,30 @@ async def list_alerts(
 
 
 @router.post(
+    "/refresh",
+    response_model=AlertStoreResponse,
+    summary="Refresh live IMD CAP alerts feed",
+    description="Re-fetches the live IMD CAP feed and broadcasts alerts over WebSockets.",
+)
+async def refresh_alerts_endpoint() -> AlertStoreResponse:
+    """
+    Re-fetch live IMD alerts feed and broadcast updates.
+    """
+    alerts = fetch_and_store_alerts()
+    if alerts:
+        from app.api.routes.websocket import broadcast_alert
+        try:
+            await broadcast_alert(alerts[0])
+        except Exception as exc:
+            logger.warning("WebSocket alert broadcast failed: %s", exc)
+
+    return AlertStoreResponse(active_count=len(alerts), alerts=alerts)
+
+
+@router.post(
     "/ingest",
     response_model=Alert,
     summary="Ingest a new alert and broadcast to WebSocket clients",
-    description=(
-        "Accepts a raw alert dict (matching IMD CAP 1.2 field names), normalises it, "
-        "stores it, and broadcasts it to all active WebSocket /ws/alerts subscribers. "
-        "Use this endpoint to simulate new alerts during testing, or to push alerts "
-        "from a real IMD feed poller in production (Section 8)."
-    ),
     status_code=201,
 )
 async def ingest_alert(
@@ -87,9 +101,9 @@ async def ingest_alert(
                     "latitude": 28.52,
                     "longitude": 77.18,
                     "radius_km": 50.0,
-                    "source": "test",
+                    "source": "IMD Live",
                     "description": "Test alert — very heavy rain expected.",
-                    "is_mock": True,
+                    "is_mock": False,
                 },
             }
         },
@@ -106,8 +120,7 @@ async def ingest_alert(
     add_alert(alert)
     logger.info("Alert ingested: %s (%s)", alert.id, alert.severity)
 
-    # Broadcast to all connected WebSocket clients
-    from app.api.routes.websocket import broadcast_alert  # deferred to avoid circular import
+    from app.api.routes.websocket import broadcast_alert
     await broadcast_alert(alert)
 
     return alert

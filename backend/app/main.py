@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()  # loads backend/.env in development; no-op in production
@@ -11,6 +13,8 @@ from app.api.routes.location import router as location_router
 from app.api.routes.risk import router as risk_router
 from app.api.routes.weather import router as weather_router
 from app.api.routes.websocket import router as websocket_router
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="WeatherGPT API",
@@ -33,6 +37,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _periodic_imd_poller():
+    """Background loop polling IMD CAP RSS feed every 10 minutes."""
+    while True:
+        await asyncio.sleep(600)
+        try:
+            from app.services.alert_service import fetch_and_store_alerts
+            fetch_and_store_alerts()
+            logger.info("Periodic IMD CAP alerts feed refresh completed.")
+        except Exception as exc:
+            logger.warning("Periodic IMD feed refresh failed: %s", exc)
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_periodic_imd_poller())
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
