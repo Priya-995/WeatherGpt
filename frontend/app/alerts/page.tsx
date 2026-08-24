@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { Alert, getAlertWebSocketUrl, getAlerts } from "@/lib/api";
 
+const formatAlertType = (typeStr: string): string => {
+  if (!typeStr) return "Weather Warning";
+  const cleaned = typeStr.toLowerCase().replace(/_/g, " ");
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1) + " Warning";
+};
+
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,8 +22,8 @@ export default function AlertsPage() {
       try {
         const res = await getAlerts();
         setAlerts(res.alerts || []);
-      } catch (err: any) {
-        setError(err.message || "Failed to load alerts.");
+      } catch {
+        setError("Unable to load active weather alerts right now. Please check your connection and try again.");
       } finally {
         setLoading(false);
       }
@@ -43,10 +49,10 @@ export default function AlertsPage() {
           if (data.event === "new_alert" && data.alert) {
             const newAlert: Alert = data.alert;
             setAlerts((prev) => [newAlert, ...prev.filter((a) => a.id !== newAlert.id)]);
-            setLiveNotification(`New Alert: ${newAlert.affected_location} - ${newAlert.severity.toUpperCase()}`);
+            setLiveNotification(`New Warning Issued for ${newAlert.affected_location}`);
             setTimeout(() => setLiveNotification(null), 5000);
           }
-        } catch (e) {
+        } catch {
           // ignore non-json
         }
       };
@@ -70,11 +76,11 @@ export default function AlertsPage() {
   }, []);
 
   const getSeverityBadge = (severity: string) => {
-    const sev = severity.toLowerCase();
-    if (sev === "red" || sev === "severe" || sev === "extreme") {
+    const sev = (severity || "").toLowerCase();
+    if (sev === "red" || sev === "severe" || sev === "extreme" || sev === "high") {
       return "bg-red-500/20 text-red-300 border-red-500/40";
     }
-    if (sev === "orange" || sev === "moderate") {
+    if (sev === "orange" || sev === "moderate" || sev === "medium") {
       return "bg-amber-500/20 text-amber-300 border-amber-500/40";
     }
     return "bg-yellow-500/20 text-yellow-300 border-yellow-500/40";
@@ -104,8 +110,12 @@ export default function AlertsPage() {
                 : "bg-red-500"
             }`}
           />
-          <span className="text-slate-300 font-medium capitalize">
-            WebSocket: {wsStatus}
+          <span className="text-slate-300 font-medium">
+            {wsStatus === "connected"
+              ? "Live Feed Active"
+              : wsStatus === "connecting"
+              ? "Connecting to Feed..."
+              : "Feed Offline"}
           </span>
         </div>
       </div>
@@ -113,7 +123,7 @@ export default function AlertsPage() {
       {/* Toast Notification for Realtime Alert */}
       {liveNotification && (
         <div className="bg-gradient-to-r from-red-600 to-amber-600 text-white p-3 rounded-lg shadow-xl text-sm font-semibold flex items-center justify-between animate-bounce">
-          <span>⚡ LIVE PUSH: {liveNotification}</span>
+          <span>⚡ LIVE WARNING: {liveNotification}</span>
         </div>
       )}
 
@@ -147,14 +157,14 @@ export default function AlertsPage() {
                       alert.severity
                     )}`}
                   >
-                    {alert.severity}
+                    {alert.severity ? alert.severity.toUpperCase() : "WARNING"}
                   </span>
-                  <span className="text-xs font-semibold text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                    {alert.alert_type.toUpperCase().replace("_", " ")}
+                  <span className="text-xs font-semibold text-slate-300 bg-slate-950 px-2.5 py-0.5 rounded border border-slate-800">
+                    {formatAlertType(alert.alert_type)}
                   </span>
                 </div>
-                <div className="text-xs text-slate-400 font-mono">
-                  ID: {alert.id} ({alert.source})
+                <div className="text-xs text-slate-400">
+                  Issued by: {alert.source || "Meteorological Department"}
                 </div>
               </div>
 
@@ -168,7 +178,7 @@ export default function AlertsPage() {
                   Issued: {new Date(alert.issue_time).toLocaleString()}
                 </div>
                 <div className="text-amber-400 font-medium">
-                  Expires: {new Date(alert.expiry_time).toLocaleString()}
+                  Valid Until: {new Date(alert.expiry_time).toLocaleString()}
                 </div>
               </div>
             </div>
