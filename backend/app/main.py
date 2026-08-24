@@ -22,17 +22,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://weather-gpt-mu.vercel.app",
-]
-
-# Enable CORS for frontend clients (Next.js local & Vercel deployment)
+# Enable universal CORS for all local dev ports (3000, 3001, 3002) and deployed Vercel frontends
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
