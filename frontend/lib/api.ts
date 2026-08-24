@@ -127,13 +127,24 @@ export interface RiskReasonObject {
   [key: string]: any;
 }
 
+export interface SubScoreItem {
+  name: string;
+  raw_value: number | string;
+  unit: string;
+  severity: number;
+  weight: number;
+  weighted: number;
+  threshold_note?: string;
+}
+
 export interface RiskResult {
   score: number;
   level: "low" | "moderate" | "high" | "critical" | string;
   reasons: (string | RiskReasonObject)[];
-  sub_scores: Record<string, number>;
+  sub_scores: SubScoreItem[] | Record<string, any>;
   advisory: AdvisorySet;
 }
+
 
 
 export async function searchLocation(query: string, count = 10): Promise<LocationItem[]> {
