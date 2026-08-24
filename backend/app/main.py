@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()  # loads backend/.env in development; no-op in production
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.alerts import router as alerts_router
 from app.api.routes.chat import router as chat_router
@@ -16,6 +17,16 @@ app = FastAPI(
     description="AI-powered weather intelligence and early-warning layer.",
     version="0.1.0",
 )
+
+# Enable CORS for frontend clients (e.g. Next.js on localhost:3000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
