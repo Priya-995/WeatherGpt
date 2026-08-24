@@ -15,17 +15,22 @@ const RiskMapClient = dynamic(() => import("@/components/RiskMapClient"), {
 
 const formatValue = (val: any): string => {
   if (val === undefined || val === null) return "";
-  if (typeof val === "object") return JSON.stringify(val);
+  if (typeof val === "object") return "";
   return String(val);
 };
 
 const formatSubScoreKey = (key: string): string => {
+  if (!key) return "Weather Factor";
   const map: Record<string, string> = {
-    rain_risk: "Rain Risk",
-    wind_risk: "Wind Risk",
-    temp_risk: "Temperature Risk",
-    temperature_risk: "Temperature Risk",
-    official_alert: "Official Alert Risk",
+    rainfall_severity: "Rainfall Hazard",
+    wind_severity: "Wind Hazard",
+    temperature_severity: "Temperature & Heat Risk",
+    official_warning_severity: "Official Warning Impact",
+    rain_risk: "Rainfall Hazard",
+    wind_risk: "Wind Hazard",
+    temp_risk: "Temperature & Heat Risk",
+    temperature_risk: "Temperature & Heat Risk",
+    official_alert: "Official Warning Impact",
   };
   if (map[key]) return map[key];
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -80,6 +85,57 @@ export default function RiskMapPage() {
     { name: "Rajasthan (Barmer)", lat: 27.2, lon: 70.9 },
     { name: "Goa", lat: 15.29, lon: 74.12 },
   ];
+
+  const renderSubScores = (subScoresData: any) => {
+    if (!subScoresData) return null;
+
+    let items: any[] = [];
+    if (Array.isArray(subScoresData)) {
+      items = subScoresData;
+    } else if (typeof subScoresData === "object") {
+      items = Object.entries(subScoresData).map(([key, val]) => {
+        if (typeof val === "object" && val !== null) {
+          return { name: key, ...val };
+        }
+        return { name: key, raw_value: val };
+      });
+    }
+
+    if (items.length === 0) return null;
+
+    return (
+      <div className="space-y-2.5 bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-xs">
+        <div className="font-semibold text-slate-300 mb-1 flex items-center justify-between">
+          <span>Sub-Score Breakdown</span>
+          <span className="text-[10px] text-slate-400 font-mono">Risktelemetry</span>
+        </div>
+        {items.map((item, idx) => {
+          const nameStr = formatSubScoreKey(item.name || item.key || `Factor ${idx + 1}`);
+          const valStr = item.raw_value !== undefined && item.raw_value !== null ? `${item.raw_value} ${item.unit || ""}`.trim() : "";
+          const noteStr = item.threshold_note ? String(item.threshold_note) : "";
+          const sevPercent = typeof item.severity === "number" ? Math.round(item.severity * 100) : null;
+          const weightedScore = typeof item.weighted === "number" ? item.weighted.toFixed(2) : null;
+
+          return (
+            <div key={idx} className="bg-slate-900/60 p-2.5 rounded border border-slate-800 space-y-1">
+              <div className="flex justify-between items-center font-medium">
+                <span className="text-slate-200">{nameStr}</span>
+                <span className="text-blue-400 font-semibold">
+                  {sevPercent !== null ? `${sevPercent}% risk` : weightedScore !== null ? `${weightedScore} pts` : valStr || "Evaluated"}
+                </span>
+              </div>
+              {(valStr || noteStr) && (
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1 pt-0.5">
+                  <span>{noteStr || valStr}</span>
+                  {noteStr && valStr && <span className="text-slate-500 font-mono text-[10px]">({valStr})</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -164,21 +220,7 @@ export default function RiskMapPage() {
                 </div>
 
                 {/* Sub-Scores Breakdown */}
-                <div className="space-y-2 bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-xs">
-                  <div className="font-semibold text-slate-300 mb-1">Sub-Score Breakdown:</div>
-                  {Object.entries(riskData.sub_scores || {}).map(([key, val]) => (
-                    <div key={key} className="flex justify-between items-center text-slate-400">
-                      <span>{formatSubScoreKey(key)}</span>
-                      <span className="font-mono font-medium text-slate-200">
-                        {typeof val === "number"
-                          ? val.toFixed(2)
-                          : typeof val === "object"
-                          ? JSON.stringify(val)
-                          : String(val)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {renderSubScores(riskData.sub_scores)}
 
                 {/* Reasoning Factors */}
                 {riskData.reasons && riskData.reasons.length > 0 && (
