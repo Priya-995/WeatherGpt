@@ -10,21 +10,41 @@ interface MessageItem {
   data_used?: Record<string, any>;
   tool_calls_made?: any[];
   model?: string;
+  language?: string;
 }
 
 export default function ChatPage() {
   const [inputMessage, setInputMessage] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState<"en" | "hi" | "hi-en">("en");
   const [messages, setMessages] = useState<MessageItem[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "Hello! I am WeatherGPT, your grounded weather AI assistant. Ask me anything like 'Will it rain tomorrow in Noida?' or 'Is Goa safe to visit this weekend?'",
+        "Hello! I am WeatherGPT. Ask me weather & farming questions in English, Hindi, or Hinglish (e.g. 'Kal pesticide spray kar sakta hoon?').",
     },
   ]);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  // Simple auto-detection helper for Hinglish / Hindi
+  const detectLanguage = (text: string): "en" | "hi" | "hi-en" => {
+    const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani"];
+    const lower = text.toLowerCase();
+    
+    // Devanagari Unicode range check for Hindi
+    if (/[\u0900-\u097F]/.test(text)) {
+      return "hi";
+    }
+    
+    // Check Hinglish keywords
+    if (hinglishKeywords.some((kw) => lower.includes(kw))) {
+      return "hi-en";
+    }
+
+    return selectedLanguage;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,17 +53,21 @@ export default function ChatPage() {
     const userText = inputMessage.trim();
     setInputMessage("");
 
+    // Auto-detect language if current selection is default "en" or auto-triggered
+    const effectiveLang = detectLanguage(userText);
+
     const userMsg: MessageItem = {
       id: Date.now().toString(),
       role: "user",
       content: userText,
+      language: effectiveLang,
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const res: ChatResponse = await sendChat(userText, sessionId);
+      const res: ChatResponse = await sendChat(userText, sessionId, effectiveLang);
 
       if (res.session_id) {
         setSessionId(res.session_id);
@@ -56,6 +80,7 @@ export default function ChatPage() {
         data_used: res.data_used,
         tool_calls_made: res.tool_calls_made,
         model: res.model,
+        language: res.language || effectiveLang,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -73,21 +98,54 @@ export default function ChatPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
-      {/* Header */}
-      <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+      {/* Header & Language Selector */}
+      <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <span>🤖</span> WeatherGPT AI Assistant
           </h1>
           <p className="text-xs text-slate-400">
-            Answers grounded in real Open-Meteo & IMD data. Zero hallucinated numbers.
+            Multilingual AI grounded in real weather data.
           </p>
         </div>
-        {sessionId && (
-          <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-mono">
-            Session: {sessionId.slice(0, 8)}...
-          </span>
-        )}
+
+        {/* Language Selector Buttons */}
+        <div className="flex items-center space-x-1.5 bg-slate-950 p-1.5 rounded-lg border border-slate-800">
+          <span className="text-[11px] text-slate-400 font-medium px-2">Language:</span>
+          <button
+            type="button"
+            onClick={() => setSelectedLanguage("en")}
+            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+              selectedLanguage === "en"
+                ? "bg-blue-600 text-white"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            English
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedLanguage("hi-en")}
+            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+              selectedLanguage === "hi-en"
+                ? "bg-emerald-600 text-white"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Hinglish
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedLanguage("hi")}
+            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+              selectedLanguage === "hi"
+                ? "bg-amber-600 text-white"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            हिंदी
+          </button>
+        </div>
       </div>
 
       {/* Chat Messages */}
@@ -108,10 +166,15 @@ export default function ChatPage() {
             >
               <div className="whitespace-pre-wrap">{msg.content}</div>
 
-              {/* Model Tag */}
-              {msg.model && (
-                <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 flex items-center justify-between">
-                  <span>Model: {msg.model}</span>
+              {/* Model & Language Tag */}
+              {(msg.model || msg.language) && (
+                <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 flex items-center justify-between gap-2">
+                  <span>{msg.model ? `Model: ${msg.model}` : ""}</span>
+                  {msg.language && (
+                    <span className="uppercase font-mono font-bold bg-slate-900/80 px-1.5 py-0.5 rounded text-blue-300">
+                      {msg.language}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -164,7 +227,7 @@ export default function ChatPage() {
           <div className="flex justify-start">
             <div className="bg-slate-800/80 text-slate-300 rounded-2xl rounded-bl-none px-4 py-3 text-sm flex items-center space-x-2 border border-slate-700/60">
               <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              <span>Analyzing weather telemetry & reasoning...</span>
+              <span>Analyzing weather telemetry & reasoning ({selectedLanguage})...</span>
             </div>
           </div>
         )}
@@ -174,7 +237,13 @@ export default function ChatPage() {
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
-          placeholder="Ask a question (e.g. Will it rain tomorrow evening in Noida?)"
+          placeholder={
+            selectedLanguage === "hi-en"
+              ? "Hinglish me pucho (e.g. Kal pesticide spray kar sakta hoon?)"
+              : selectedLanguage === "hi"
+              ? "हिंदी में पूछें (उदा. क्या कल बारिश होगी?)"
+              : "Ask a question (e.g. Will it rain tomorrow evening in Noida?)"
+          }
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
           className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"

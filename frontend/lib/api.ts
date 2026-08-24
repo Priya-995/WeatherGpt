@@ -99,7 +99,9 @@ export interface ChatResponse {
   tool_calls_made: ToolCall[];
   model?: string;
   session_id?: string;
+  language?: string;
 }
+
 
 export interface AdvisoryItem {
   category: string;
@@ -152,11 +154,11 @@ export async function getAlerts(lat?: number, lon?: number): Promise<AlertStoreR
   return res.json();
 }
 
-export async function sendChat(message: string, sessionId?: string): Promise<ChatResponse> {
+export async function sendChat(message: string, sessionId?: string, language: string = "en"): Promise<ChatResponse> {
   const res = await fetch(`${API_BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({ message, session_id: sessionId, language }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

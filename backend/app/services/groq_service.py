@@ -24,12 +24,18 @@ from functools import lru_cache
 from typing import Any, Dict, List
 
 from groq import AsyncGroq
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # ---------------------------------------------------------------------------
 # Default model — fast, capable, supports parallel tool calls
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "qwen/qwen3.6-27b"
+
+
 MAX_TOKENS = 1024
 
 
@@ -183,3 +189,29 @@ ANSWER STYLE:
   the expected amount in mm, not just a vague "yes/no".
 - For advisory queries, quote the advisory title and message from get_risk results.
 """
+
+
+def get_system_prompt(language: str = "en") -> str:
+    """
+    Return the system prompt with language-specific instructions appended.
+    Supported languages: 'en' (English), 'hi' (Hindi), 'hi-en' (Hinglish).
+    """
+    lang_code = (language or "en").lower().strip()
+
+    if lang_code in ("hi", "hindi"):
+        lang_instruction = (
+            "\n\nLANGUAGE INSTRUCTION: Respond entirely in Hindi using Devanagari script. "
+            "Explain clearly in Hindi, but keep all numeric values, temperatures (°C), precipitation (mm), "
+            "wind speeds (km/h), percentages (%), dates, and place names exact and unchanged from the tool data."
+        )
+    elif lang_code in ("hi-en", "hinglish"):
+        lang_instruction = (
+            "\n\nLANGUAGE INSTRUCTION: Respond in natural, conversational Hinglish (Hindi written in Latin/English script). "
+            "For example: 'Aap kal pesticide spray nahi kar sakte kyunki 80% rain probability hai (2.5 mm rainfall expected).' "
+            "Keep all numeric values, temperatures, wind speeds, percentages, and units exact and unchanged from the tool data."
+        )
+    else:
+        lang_instruction = "\n\nLANGUAGE INSTRUCTION: Respond in clear, natural English."
+
+    return SYSTEM_PROMPT + lang_instruction
+
