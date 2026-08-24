@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas.risk import RiskResult
 from app.services.advisory_engine import generate_advisories
+from app.services.alert_service import get_alert_data_for_risk_engine
 from app.services.risk_engine import calculate_risk
 from app.services.weather_service import WeatherServiceError, get_forecast
 
@@ -47,12 +48,14 @@ async def get_risk(
     except WeatherServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
-    # Pass 1: score without advisory to get the risk level
-    from app.schemas.risk import RiskLevel  # local import avoids circular at module level
-    preliminary = calculate_risk(weather, alert_data=None)
+    # Fetch active alerts affecting this location from the store
+    alert_data = get_alert_data_for_risk_engine(lat, lon)
 
-    # Pass 2: generate advisory with the known risk level, then embed in final score
-    advisory = generate_advisories(weather, risk_level=preliminary.level, alert_data=None)
-    result = calculate_risk(weather, alert_data=None, advisory=advisory)
+    # Pass 1: score (with real alert data) to get the risk level
+    preliminary = calculate_risk(weather, alert_data=alert_data)
+
+    # Pass 2: generate advisory with the known level, then embed in the final score
+    advisory = generate_advisories(weather, risk_level=preliminary.level, alert_data=alert_data)
+    result = calculate_risk(weather, alert_data=alert_data, advisory=advisory)
 
     return result
