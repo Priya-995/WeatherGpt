@@ -1,12 +1,134 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
-:root {
-  --background: #090d16;
-  --foreground: #f1f5f9;
+@theme {
+  --color-primary: #00366b;
+  --color-primary-container: #1b4d89;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #98bfff;
+  --color-primary-fixed: #d5e3ff;
+  --color-primary-fixed-dim: #a7c8ff;
+  --color-on-primary-fixed: #001b3c;
+  --color-on-primary-fixed-variant: #114783;
+
+  --color-secondary: #406180;
+  --color-secondary-container: #b9dbfe;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #3f607f;
+  --color-secondary-fixed: #cee5ff;
+  --color-secondary-fixed-dim: #a8caed;
+  --color-on-secondary-fixed: #001d32;
+  --color-on-secondary-fixed-variant: #274967;
+
+  --color-tertiary: #562b00;
+  --color-tertiary-container: #773e00;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #fdac68;
+  --color-tertiary-fixed: #ffdcc3;
+  --color-tertiary-fixed-dim: #ffb77e;
+  --color-on-tertiary-fixed: #2f1500;
+  --color-on-tertiary-fixed-variant: #6e3900;
+
+  --color-surface: #f8f9fa;
+  --color-surface-dim: #d9dadb;
+  --color-surface-bright: #f8f9fa;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f3f4f5;
+  --color-surface-container: #edeeef;
+  --color-surface-container-high: #e7e8e9;
+  --color-surface-container-highest: #e1e3e4;
+  --color-surface-variant: #e1e3e4;
+  --color-surface-tint: #325f9c;
+
+  --color-on-surface: #191c1d;
+  --color-on-surface-variant: #424750;
+  --color-outline: #737781;
+  --color-outline-variant: #c3c6d1;
+  --color-inverse-surface: #2e3132;
+  --color-inverse-on-surface: #f0f1f2;
+  --color-inverse-primary: #a7c8ff;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  --color-background: #f8f9fa;
+  --color-on-background: #191c1d;
+
+  --font-inter: "Inter", sans-serif;
+  --font-manrope: "Manrope", sans-serif;
+}
+
+/* Custom Stitch Typography Utility Classes */
+.text-metric-display {
+  font-family: var(--font-manrope);
+  font-size: 48px;
+  line-height: 56px;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.text-headline-lg {
+  font-family: var(--font-manrope);
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 600;
+}
+
+.text-headline-lg-mobile {
+  font-family: var(--font-manrope);
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+}
+
+.text-headline-md {
+  font-family: var(--font-manrope);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+}
+
+.text-headline-sm {
+  font-family: var(--font-manrope);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.text-body-lg {
+  font-family: var(--font-inter);
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 400;
+}
+
+.text-body-md {
+  font-family: var(--font-inter);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+}
+
+.text-body-sm {
+  font-family: var(--font-inter);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+.text-label-caps {
+  font-family: var(--font-inter);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: #f8f9fa;
+  color: #191c1d;
+  font-family: var(--font-inter);
 }
