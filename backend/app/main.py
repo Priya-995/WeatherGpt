@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.routes.location import router as location_router
 from app.api.routes.weather import router as weather_router
 
 app = FastAPI(
@@ -18,3 +19,4 @@ async def health_check():
 # ── Feature routers ───────────────────────────────────────────────────────────
 
 app.include_router(weather_router)
+app.include_router(location_router)
