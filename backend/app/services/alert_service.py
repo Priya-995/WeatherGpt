@@ -42,16 +42,63 @@ from typing import Dict, List, Optional
 from app.schemas.alert import Alert, AlertSeverity, AlertType
 
 
+import logging
+from app.db.supabase_client import get_supabase_client
+
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# In-memory store
-# TODO (Section 8): replace with Supabase table + real-time subscription
+# Store & Supabase Mappers
 # ---------------------------------------------------------------------------
 
-_store: Dict[str, Alert] = {}  # id → Alert
+_store: Dict[str, Alert] = {}  # id → Alert fallback store
 
 
 def _now_utc() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _alert_to_row(alert: Alert) -> dict:
+    return {
+        "id": alert.id,
+        "type": alert.alert_type.value if hasattr(alert.alert_type, "value") else str(alert.alert_type),
+        "severity": alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity),
+        "affected_location": alert.affected_location,
+        "issue_time": alert.issue_time.isoformat() if isinstance(alert.issue_time, datetime) else str(alert.issue_time),
+        "expiry_time": alert.expiry_time.isoformat() if isinstance(alert.expiry_time, datetime) else str(alert.expiry_time),
+        "source": alert.source,
+        "instructions": alert.instructions,
+    }
+
+
+def _row_to_alert(row: dict) -> Alert:
+    issue_time = row["issue_time"]
+    if isinstance(issue_time, str):
+        issue_time = datetime.fromisoformat(issue_time.replace("Z", "+00:00"))
+    expiry_time = row["expiry_time"]
+    if isinstance(expiry_time, str):
+        expiry_time = datetime.fromisoformat(expiry_time.replace("Z", "+00:00"))
+
+    try:
+        a_type = AlertType(row.get("type", "other"))
+    except ValueError:
+        a_type = AlertType.OTHER
+
+    try:
+        a_sev = AlertSeverity(row.get("severity", "minor"))
+    except ValueError:
+        a_sev = AlertSeverity.MINOR
+
+    return Alert(
+        id=row["id"],
+        alert_type=a_type,
+        severity=a_sev,
+        affected_location=row.get("affected_location", ""),
+        issue_time=issue_time,
+        expiry_time=expiry_time,
+        source=row.get("source", "IMD"),
+        instructions=row.get("instructions", ""),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -61,24 +108,50 @@ def _now_utc() -> datetime:
 def add_alert(alert: Alert) -> Alert:
     """
     Add or replace an alert in the store.
-    Callers include the mock seeder, the POST /api/alerts/ingest endpoint,
-    and (Section 8) the Supabase realtime listener.
+    Callers include the mock seeder, the POST /api/alerts/ingest endpoint.
     Returns the stored alert for chaining.
     """
     _store[alert.id] = alert
+    try:
+        supabase = get_supabase_client()
+        supabase.table("alerts").upsert(_alert_to_row(alert)).execute()
+    except Exception as exc:
+        logger.warning("Supabase alert write failed: %s", exc)
     return alert
 
 
 def get_all_alerts() -> List[Alert]:
-    """Return all alerts in the store, including expired ones."""
+    """Return all alerts, including expired ones."""
+    try:
+        supabase = get_supabase_client()
+        res = supabase.table("alerts").select("*").execute()
+        if res.data is not None:
+            return [_row_to_alert(row) for row in res.data]
+    except Exception as exc:
+        logger.warning("Supabase alerts read failed: %s. Falling back to in-memory store.", exc)
     return list(_store.values())
 
 
 def get_active_alerts() -> List[Alert]:
     """
     Return only non-expired alerts, ordered most-severe first.
-    Expired alerts are evicted from the store lazily on each read.
     """
+    now_iso = _now_utc().isoformat()
+    try:
+        supabase = get_supabase_client()
+        res = supabase.table("alerts").select("*").gt("expiry_time", now_iso).execute()
+        if res.data is not None and len(res.data) > 0:
+            alerts = [_row_to_alert(row) for row in res.data]
+            severity_order = {
+                AlertSeverity.EXTREME: 0,
+                AlertSeverity.SEVERE: 1,
+                AlertSeverity.MODERATE: 2,
+                AlertSeverity.MINOR: 3,
+            }
+            return sorted(alerts, key=lambda a: severity_order.get(a.severity, 9))
+    except Exception as exc:
+        logger.warning("Supabase active alerts read failed: %s. Falling back to in-memory store.", exc)
+
     now = _now_utc()
     expired_ids = [aid for aid, a in _store.items() if a.expiry_time <= now]
     for aid in expired_ids:
@@ -94,6 +167,7 @@ def get_active_alerts() -> List[Alert]:
         _store.values(),
         key=lambda a: severity_order.get(a.severity, 9),
     )
+
 
 
 def get_active_alerts_for_location(

@@ -26,6 +26,10 @@ class ChatRequest(BaseModel):
         description="Natural-language weather question from the user.",
         examples=["Will it rain tomorrow evening in Noida?"],
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="Optional session UUID to associate this message with an existing chat session.",
+    )
 
 
 class ToolCall(BaseModel):
@@ -58,3 +62,20 @@ class ChatResponse(BaseModel):
         None,
         description="Groq model identifier used to generate the answer.",
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="Chat session UUID associated with this conversation turn.",
+    )
+
+
+class ChatMessageRecord(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+
+
+class ChatHistoryResponse(BaseModel):
+    messages: List[ChatMessageRecord]
+

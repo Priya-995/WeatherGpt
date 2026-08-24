@@ -97,7 +97,15 @@ class _CacheEntry:
     fetched_at: float = field(default_factory=time.monotonic)
 
 
-# Module-level cache dict:  (lat_rounded, lon_rounded) -> _CacheEntry
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+
+from app.db.supabase_client import get_supabase_client
+
+logger = logging.getLogger(__name__)
+
+# Module-level fallback cache dict: (lat_rounded, lon_rounded) -> _CacheEntry
 _cache: Dict[Tuple[float, float], _CacheEntry] = {}
 
 
@@ -106,19 +114,63 @@ def _cache_key(lat: float, lon: float) -> Tuple[float, float]:
     return (round(lat, 2), round(lon, 2))
 
 
-def _get_cached(lat: float, lon: float) -> WeatherResponse | None:
-    key = _cache_key(lat, lon)
-    entry = _cache.get(key)
+async def _get_cached(lat: float, lon: float) -> WeatherResponse | None:
+    lat_r, lon_r = _cache_key(lat, lon)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Try reading from Supabase
+    try:
+        supabase = get_supabase_client()
+        res = (
+            supabase.table("weather_cache")
+            .select("*")
+            .eq("lat", lat_r)
+            .eq("lon", lon_r)
+            .gt("expires_at", now_iso)
+            .order("fetched_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            row = res.data[0]
+            raw_data = row.get("data")
+            if isinstance(raw_data, str):
+                raw_data = json.loads(raw_data)
+            return _parse_response(raw_data, cached=True)
+    except Exception as exc:
+        logger.warning("Supabase weather_cache read failed: %s. Falling back to in-memory cache.", exc)
+
+    # Fallback to module-level in-memory cache
+    entry = _cache.get((lat_r, lon_r))
     if entry and (time.monotonic() - entry.fetched_at) < CACHE_TTL_SECONDS:
         return entry.response
-    # Evict stale entry if present
     if entry:
-        del _cache[key]
+        del _cache[(lat_r, lon_r)]
     return None
 
 
-def _set_cache(lat: float, lon: float, response: WeatherResponse) -> None:
-    _cache[_cache_key(lat, lon)] = _CacheEntry(response=response)
+async def _set_cache(lat: float, lon: float, response: WeatherResponse) -> None:
+    lat_r, lon_r = _cache_key(lat, lon)
+    now_dt = datetime.now(timezone.utc)
+    expires_dt = now_dt + timedelta(seconds=CACHE_TTL_SECONDS)
+
+    # Store in module-level fallback cache
+    _cache[(lat_r, lon_r)] = _CacheEntry(response=response)
+
+    # Store in Supabase weather_cache table
+    try:
+        supabase = get_supabase_client()
+        payload = {
+            "lat": lat_r,
+            "lon": lon_r,
+            "data": response.model_dump(),
+            "fetched_at": now_dt.isoformat(),
+            "expires_at": expires_dt.isoformat(),
+        }
+        supabase.table("weather_cache").insert(payload).execute()
+    except Exception as exc:
+        logger.warning("Supabase weather_cache write failed: %s", exc)
+
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +253,7 @@ async def get_forecast(lat: float, lon: float) -> WeatherResponse:
     Raises WeatherServiceError on network failure, timeout, or bad data.
     """
     # --- Cache hit ---
-    cached_response = _get_cached(lat, lon)
+    cached_response = await _get_cached(lat, lon)
     if cached_response is not None:
         # Return a copy with cached=True so callers can detect it
         return cached_response.model_copy(update={"cached": True})
@@ -240,5 +292,6 @@ async def get_forecast(lat: float, lon: float) -> WeatherResponse:
         ) from exc
 
     weather = _parse_response(data, cached=False)
-    _set_cache(lat, lon, weather)
+    await _set_cache(lat, lon, weather)
     return weather
+
