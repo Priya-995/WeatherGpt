@@ -4,10 +4,12 @@ load_dotenv()  # loads backend/.env in development; no-op in production
 
 from fastapi import FastAPI
 
+from app.api.routes.alerts import router as alerts_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.location import router as location_router
 from app.api.routes.risk import router as risk_router
 from app.api.routes.weather import router as weather_router
+from app.api.routes.websocket import router as websocket_router
 
 app = FastAPI(
     title="WeatherGPT API",
@@ -28,3 +30,5 @@ app.include_router(weather_router)
 app.include_router(location_router)
 app.include_router(chat_router)
 app.include_router(risk_router)
+app.include_router(alerts_router)
+app.include_router(websocket_router)

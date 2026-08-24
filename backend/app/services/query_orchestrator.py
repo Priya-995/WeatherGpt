@@ -105,9 +105,11 @@ async def _execute_tool(
             lat = float(arguments["lat"])
             lon = float(arguments["lon"])
             forecast = await get_forecast(lat, lon)
-            temp_result = calculate_risk(forecast, alert_data=None)
-            advisory = generate_advisories(forecast, risk_level=temp_result.level, alert_data=None)
-            risk_result = calculate_risk(forecast, alert_data=None, advisory=advisory)
+            from app.services.alert_service import get_alert_data_for_risk_engine
+            alert_data = get_alert_data_for_risk_engine(lat, lon)
+            temp_result = calculate_risk(forecast, alert_data=alert_data)
+            advisory = generate_advisories(forecast, risk_level=temp_result.level, alert_data=alert_data)
+            risk_result = calculate_risk(forecast, alert_data=alert_data, advisory=advisory)
 
             result_payload = risk_result.model_dump()
             summary = (
