@@ -116,13 +116,25 @@ export interface AdvisorySet {
   items: AdvisoryItem[];
 }
 
+export interface RiskReasonObject {
+  name?: string;
+  raw_value?: number | string;
+  unit?: string;
+  severity?: string;
+  weight?: number;
+  weighted?: number;
+  threshold_note?: string;
+  [key: string]: any;
+}
+
 export interface RiskResult {
   score: number;
   level: "low" | "moderate" | "high" | "critical" | string;
-  reasons: string[];
+  reasons: (string | RiskReasonObject)[];
   sub_scores: Record<string, number>;
   advisory: AdvisorySet;
 }
+
 
 export async function searchLocation(query: string, count = 10): Promise<LocationItem[]> {
   if (!query.trim()) return [];

@@ -158,16 +158,53 @@ export default function RiskMapPage() {
                 </div>
 
                 {/* Reasoning Factors */}
-                <div className="space-y-1 text-xs">
-                  <div className="font-semibold text-slate-300">Driver Factors:</div>
-                  <ul className="list-disc list-inside space-y-1 text-slate-400">
-                    {riskData.reasons.map((r, i) => (
-                      <li key={i}>{r}</li>
-                    ))}
-                  </ul>
-                </div>
+                {riskData.reasons && riskData.reasons.length > 0 && (
+                  <div className="space-y-2 text-xs">
+                    <div className="font-semibold text-slate-300">Driver Factors:</div>
+                    <ul className="space-y-2 text-slate-300">
+                      {riskData.reasons.map((r, i) => {
+                        if (typeof r === "string") {
+                          return (
+                            <li key={i} className="flex items-start gap-1.5 bg-slate-950 p-2.5 rounded border border-slate-800">
+                              <span className="text-blue-400 font-bold">•</span>
+                              <span>{r}</span>
+                            </li>
+                          );
+                        }
+
+                        const { name, raw_value, unit, severity, threshold_note } = r;
+                        const valStr = raw_value !== undefined && raw_value !== null ? `${raw_value}${unit ? unit : ""}` : "";
+                        const titleLine = name ? (valStr ? `${name}: ${valStr}` : name) : valStr || "Factor";
+                        const sevText = severity ? `${severity.charAt(0).toUpperCase() + severity.slice(1)} severity` : "";
+                        const mainText = sevText ? `${titleLine} — ${sevText}` : titleLine;
+
+                        const sevColor =
+                          severity?.toLowerCase() === "high" || severity?.toLowerCase() === "critical"
+                            ? "text-red-400 font-semibold"
+                            : severity?.toLowerCase() === "moderate"
+                            ? "text-amber-400 font-semibold"
+                            : "text-slate-200";
+
+                        return (
+                          <li key={i} className="bg-slate-950 p-2.5 rounded border border-slate-800 space-y-1">
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-blue-400 font-bold">•</span>
+                              <span className={sevColor}>{mainText}</span>
+                            </div>
+                            {threshold_note && (
+                              <div className="text-[11px] text-slate-400 pl-4 border-l border-slate-800">
+                                {threshold_note}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
               </div>
             ) : null}
+
           </div>
 
           {/* Summary Footer */}
