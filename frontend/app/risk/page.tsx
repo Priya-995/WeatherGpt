@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { RiskReasonObject, RiskResult, getRisk } from "@/lib/api";
+import { RiskResult, getRisk } from "@/lib/api";
 
 const RiskMapClient = dynamic(() => import("@/components/RiskMapClient"), {
   ssr: false,
@@ -17,6 +17,18 @@ const formatValue = (val: any): string => {
   if (val === undefined || val === null) return "";
   if (typeof val === "object") return JSON.stringify(val);
   return String(val);
+};
+
+const formatSubScoreKey = (key: string): string => {
+  const map: Record<string, string> = {
+    rain_risk: "Rain Risk",
+    wind_risk: "Wind Risk",
+    temp_risk: "Temperature Risk",
+    temperature_risk: "Temperature Risk",
+    official_alert: "Official Alert Risk",
+  };
+  if (map[key]) return map[key];
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
 export default function RiskMapPage() {
@@ -35,8 +47,8 @@ export default function RiskMapPage() {
       try {
         const data = await getRisk(selectedCoords.lat, selectedCoords.lon);
         setRiskData(data);
-      } catch (err: any) {
-        setError(err.message || "Failed to calculate risk score.");
+      } catch {
+        setError("Unable to compute risk score for this location. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -156,7 +168,7 @@ export default function RiskMapPage() {
                   <div className="font-semibold text-slate-300 mb-1">Sub-Score Breakdown:</div>
                   {Object.entries(riskData.sub_scores || {}).map(([key, val]) => (
                     <div key={key} className="flex justify-between items-center text-slate-400">
-                      <span className="capitalize">{key.replace("_", " ")}</span>
+                      <span>{formatSubScoreKey(key)}</span>
                       <span className="font-mono font-medium text-slate-200">
                         {typeof val === "number"
                           ? val.toFixed(2)

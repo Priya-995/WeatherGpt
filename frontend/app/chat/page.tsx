@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { ChatResponse, sendChat } from "@/lib/api";
 
 interface MessageItem {
@@ -28,7 +29,7 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-  // Simple auto-detection helper for Hinglish / Hindi
+  // Auto-detection helper for Hinglish / Hindi
   const detectLanguage = (text: string): "en" | "hi" | "hi-en" => {
     const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani"];
     const lower = text.toLowerCase();
@@ -53,7 +54,6 @@ export default function ChatPage() {
     const userText = inputMessage.trim();
     setInputMessage("");
 
-    // Auto-detect language if current selection is default "en" or auto-triggered
     const effectiveLang = detectLanguage(userText);
 
     const userMsg: MessageItem = {
@@ -84,11 +84,11 @@ export default function ChatPage() {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
+    } catch {
       const errorMsg: MessageItem = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `Sorry, I encountered an error: ${err.message || "Failed to process question."}`,
+        content: "Sorry, I am unable to connect to the weather service right now. Please try asking your question again in a moment.",
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -164,17 +164,18 @@ export default function ChatPage() {
                   : "bg-slate-800 text-slate-100 border border-slate-700/80 rounded-bl-none shadow-md"
               }`}
             >
-              <div className="whitespace-pre-wrap">{msg.content}</div>
+              {/* Formatted Markdown Output */}
+              <div className="prose prose-invert prose-sm max-w-none text-slate-100 leading-relaxed">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
+              </div>
 
-              {/* Model & Language Tag */}
-              {(msg.model || msg.language) && (
+              {/* Language Tag */}
+              {msg.language && (
                 <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 flex items-center justify-between gap-2">
-                  <span>{msg.model ? `Model: ${msg.model}` : ""}</span>
-                  {msg.language && (
-                    <span className="uppercase font-mono font-bold bg-slate-900/80 px-1.5 py-0.5 rounded text-blue-300">
-                      {msg.language}
-                    </span>
-                  )}
+                  <span>WeatherGPT Response</span>
+                  <span className="uppercase font-mono font-bold bg-slate-900/80 px-1.5 py-0.5 rounded text-blue-300">
+                    {msg.language === "hi-en" ? "Hinglish" : msg.language === "hi" ? "Hindi" : "English"}
+                  </span>
                 </div>
               )}
             </div>
@@ -186,8 +187,8 @@ export default function ChatPage() {
                   onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center space-x-1 font-medium bg-slate-900/80 px-3 py-1 rounded border border-slate-800 transition-colors"
                 >
-                  <span>🔍 {expandedIndex === idx ? "Hide Source Data Used" : "View Source Data Used"}</span>
-                  <span className="text-[10px]">({msg.tool_calls_made?.length || 0} tool call(s))</span>
+                  <span>🔍 {expandedIndex === idx ? "Hide Telemetry Audit" : "View Telemetry Audit"}</span>
+                  <span className="text-[10px]">({msg.tool_calls_made?.length || 0} data source check(s))</span>
                 </button>
 
                 {expandedIndex === idx && (
@@ -195,25 +196,14 @@ export default function ChatPage() {
                     {/* Tool Calls Audit Trail */}
                     {msg.tool_calls_made && msg.tool_calls_made.length > 0 && (
                       <div>
-                        <div className="font-semibold text-slate-300 mb-1">Tools Executed:</div>
+                        <div className="font-semibold text-slate-300 mb-1">Data Sources Queried:</div>
                         <ul className="space-y-1 text-slate-400">
                           {msg.tool_calls_made.map((tc, tIdx) => (
                             <li key={tIdx} className="bg-slate-900 p-1.5 rounded border border-slate-800">
-                              <span className="text-blue-400 font-bold">{tc.tool_name}</span>
-                              ({JSON.stringify(tc.arguments)}) → {tc.result_summary}
+                              <span className="text-blue-400 font-bold">{tc.tool_name}</span> → {tc.result_summary}
                             </li>
                           ))}
                         </ul>
-                      </div>
-                    )}
-
-                    {/* Raw Data JSON */}
-                    {msg.data_used && Object.keys(msg.data_used).length > 0 && (
-                      <div>
-                        <div className="font-semibold text-slate-300 mb-1">Raw Weather Data JSON:</div>
-                        <pre className="p-2 bg-slate-900 rounded text-[11px] text-teal-300 overflow-x-auto max-h-48 border border-slate-800">
-                          {JSON.stringify(msg.data_used, null, 2)}
-                        </pre>
                       </div>
                     )}
                   </div>
@@ -227,7 +217,7 @@ export default function ChatPage() {
           <div className="flex justify-start">
             <div className="bg-slate-800/80 text-slate-300 rounded-2xl rounded-bl-none px-4 py-3 text-sm flex items-center space-x-2 border border-slate-700/60">
               <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              <span>Analyzing weather telemetry & reasoning ({selectedLanguage})...</span>
+              <span>Checking weather data and generating answer...</span>
             </div>
           </div>
         )}

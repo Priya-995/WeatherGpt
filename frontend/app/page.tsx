@@ -37,8 +37,8 @@ export default function DashboardPage() {
         ]);
         setWeather(weatherData);
         setAlerts(alertData.alerts || []);
-      } catch (err: any) {
-        setError(err.message || "Failed to load weather data.");
+      } catch {
+        setError("Unable to load live weather data at the moment. Please check your connection and try again.");
       } finally {
         setLoading(false);
       }
@@ -103,7 +103,7 @@ export default function DashboardPage() {
                   <div className="font-medium">{item.name}</div>
                   <div className="text-xs text-slate-400">
                     {item.admin1 ? `${item.admin1}, ` : ""}
-                    {item.country || ""} ({item.latitude.toFixed(2)}, {item.longitude.toFixed(2)})
+                    {item.country || ""}
                   </div>
                 </li>
               ))}
@@ -119,10 +119,10 @@ export default function DashboardPage() {
             <div className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
             <div>
               <h3 className="font-semibold text-amber-200 text-sm">
-                Active Weather Warnings Detected ({alerts.length})
+                Active Weather Warnings ({alerts.length})
               </h3>
               <p className="text-xs text-amber-300/80">
-                {alerts[0].affected_location}: {alerts[0].instructions.slice(0, 100)}...
+                {alerts[0].affected_location}: {alerts[0].instructions?.slice(0, 120)}...
               </p>
             </div>
           </div>
@@ -139,7 +139,7 @@ export default function DashboardPage() {
         <div className="h-64 flex items-center justify-center bg-slate-900/40 rounded-xl border border-slate-800">
           <div className="text-slate-400 text-sm flex items-center space-x-2">
             <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <span>Loading live weather intelligence...</span>
+            <span>Loading live weather conditions...</span>
           </div>
         </div>
       ) : error ? (
@@ -163,7 +163,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="text-xs text-slate-400 mt-4">
-                {weather.cached ? "⚡ Served from fast cache" : "🔄 Fresh API data"}
+                {weather.cached ? "⚡ Fast cached response" : "🔄 Live telemetry"}
               </div>
             </div>
 

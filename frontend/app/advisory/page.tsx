@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { AdvisoryItem, RiskResult, getRisk } from "@/lib/api";
 
+const formatCategoryName = (catStr?: string): string => {
+  if (!catStr) return "General Safety Advice";
+  const cleaned = catStr.toLowerCase().replace(/_/g, " ");
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+};
+
 export default function AdvisoryPage() {
   const [activeUseCase, setActiveUseCase] = useState<"citizen" | "farmer" | "heat">("citizen");
   const [selectedCoords, setSelectedCoords] = useState<{ name: string; lat: number; lon: number }>({
@@ -21,8 +27,8 @@ export default function AdvisoryPage() {
       try {
         const res = await getRisk(selectedCoords.lat, selectedCoords.lon);
         setRiskData(res);
-      } catch (err: any) {
-        setError(err.message || "Failed to load advisories.");
+      } catch {
+        setError("Unable to load advisory recommendations at the moment. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -40,14 +46,14 @@ export default function AdvisoryPage() {
   // Filter advisory items by active use case
   const filteredAdvisories: AdvisoryItem[] =
     riskData?.advisory?.items?.filter((item) => {
-      const uCase = item.use_case?.toLowerCase() || "";
+      const uCase = (item.use_case || "").toLowerCase();
       if (activeUseCase === "farmer") return uCase.includes("farmer") || uCase.includes("agriculture");
       if (activeUseCase === "heat") return uCase.includes("heat") || uCase.includes("temperature");
       return uCase.includes("citizen") || uCase.includes("general") || uCase.includes("travel");
     }) || [];
 
   const getPriorityBadge = (priority: string) => {
-    const p = priority?.toLowerCase() || "";
+    const p = (priority || "").toLowerCase();
     if (p === "high" || p === "critical" || p === "urgent") {
       return "bg-red-500/20 text-red-300 border-red-500/40";
     }
@@ -98,7 +104,7 @@ export default function AdvisoryPage() {
               : "border-transparent text-slate-400 hover:text-slate-200"
           }`}
         >
-          🏙️ Citizen / Travel Safety
+          🏙️ Citizen & Travel Safety
         </button>
 
         <button
@@ -109,7 +115,7 @@ export default function AdvisoryPage() {
               : "border-transparent text-slate-400 hover:text-slate-200"
           }`}
         >
-          🌾 Farmer / Agricultural
+          🌾 Farmer & Agriculture
         </button>
 
         <button
@@ -129,7 +135,7 @@ export default function AdvisoryPage() {
         <div className="h-48 flex items-center justify-center bg-slate-900/40 rounded-xl border border-slate-800">
           <div className="text-slate-400 text-sm flex items-center space-x-2">
             <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <span>Generating rule-based recommendations for {selectedCoords.name}...</span>
+            <span>Generating recommendations for {selectedCoords.name}...</span>
           </div>
         </div>
       ) : error ? (
@@ -139,12 +145,14 @@ export default function AdvisoryPage() {
       ) : (
         <div className="space-y-4">
           {riskData?.advisory?.summary && (
-            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-sm text-slate-200 flex items-center justify-between">
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-sm text-slate-200 flex items-center justify-between gap-4">
               <div>
-                <span className="font-semibold text-blue-400">Overall Summary: </span>
-                {riskData.advisory.summary}
+                <span className="font-semibold text-blue-400">Overview: </span>
+                {typeof riskData.advisory.summary === "object"
+                  ? JSON.stringify(riskData.advisory.summary)
+                  : String(riskData.advisory.summary)}
               </div>
-              <span className="text-xs bg-slate-950 text-slate-400 px-2.5 py-1 rounded border border-slate-800 capitalize font-mono">
+              <span className="text-xs bg-slate-950 text-slate-300 px-3 py-1 rounded border border-slate-800 capitalize font-medium shrink-0">
                 Risk Level: {riskData.level}
               </span>
             </div>
@@ -152,7 +160,7 @@ export default function AdvisoryPage() {
 
           {filteredAdvisories.length === 0 ? (
             <div className="p-8 text-center bg-slate-900/40 rounded-xl border border-slate-800 text-slate-400 text-sm">
-              No specific high-risk advisories for this category under current weather conditions.
+              No severe weather advisories for this category under current conditions. All clear.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -163,14 +171,14 @@ export default function AdvisoryPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      {item.category || item.use_case}
+                      {formatCategoryName(item.category || item.use_case)}
                     </span>
                     <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${getPriorityBadge(
+                      className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded border ${getPriorityBadge(
                         item.priority
                       )}`}
                     >
-                      {item.priority || "Info"} Priority
+                      {item.priority ? `${item.priority} Priority` : "General Guidance"}
                     </span>
                   </div>
 
@@ -179,8 +187,8 @@ export default function AdvisoryPage() {
                     <p className="text-xs text-slate-300 mt-2 leading-relaxed">{item.description}</p>
                   </div>
 
-                  <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-800/60">
-                    Source: Rule-based Advisory Engine
+                  <div className="text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
+                    Source: Weather Intelligence Rule Engine
                   </div>
                 </div>
               ))}
