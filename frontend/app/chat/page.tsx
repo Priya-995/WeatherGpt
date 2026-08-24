@@ -1,18 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useState, useRef, useEffect } from "react";
 import { ChatResponse, sendChat } from "@/lib/api";
-
-interface MessageItem {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  data_used?: Record<string, any>;
-  tool_calls_made?: any[];
-  model?: string;
-  language?: string;
-}
+import ChatBubble from "@/components/ui/ChatBubble";
+import LiveIndicator from "@/components/ui/LiveIndicator";
+import { MessageItem } from "@/components/ui/ChatMessage";
+import { Bot, Send, Languages, HelpCircle, Loader2 } from "lucide-react";
 
 export default function ChatPage() {
   const [inputMessage, setInputMessage] = useState("");
@@ -22,38 +15,33 @@ export default function ChatPage() {
       id: "welcome",
       role: "assistant",
       content:
-        "Hello! I am WeatherGPT. Ask me weather & farming questions in English, Hindi, or Hinglish (e.g. 'Kal pesticide spray kar sakta hoon?').",
+        "**Welcome to WeatherGPT AI Decision Support.**\n\nI am your grounded meteorological assistant. Ask me weather and agricultural timing questions in English, Hindi, or Hinglish — for example:\n- *\"Will it rain in Noida this evening?\"*\n- *\"Kal pesticide spray kar sakta hoon?\"*\n- *\"क्या बाड़मेर में लू की चेतावनी है?\"*",
+      model: "WeatherGPT Groq Intelligence Engine",
+      language: "en",
     },
   ]);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-detection helper for Hinglish / Hindi
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
   const detectLanguage = (text: string): "en" | "hi" | "hi-en" => {
-    const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani"];
+    const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani", "karo"];
     const lower = text.toLowerCase();
-    
-    // Devanagari Unicode range check for Hindi
-    if (/[\u0900-\u097F]/.test(text)) {
-      return "hi";
-    }
-    
-    // Check Hinglish keywords
-    if (hinglishKeywords.some((kw) => lower.includes(kw))) {
-      return "hi-en";
-    }
 
+    if (/[\u0900-\u097F]/.test(text)) return "hi";
+    if (hinglishKeywords.some((kw) => lower.includes(kw))) return "hi-en";
     return selectedLanguage;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || loading) return;
+  const handleSend = async (textToSend: string) => {
+    const userText = textToSend.trim();
+    if (!userText || loading) return;
 
-    const userText = inputMessage.trim();
     setInputMessage("");
-
     const effectiveLang = detectLanguage(userText);
 
     const userMsg: MessageItem = {
@@ -69,9 +57,7 @@ export default function ChatPage() {
     try {
       const res: ChatResponse = await sendChat(userText, sessionId, effectiveLang);
 
-      if (res.session_id) {
-        setSessionId(res.session_id);
-      }
+      if (res.session_id) setSessionId(res.session_id);
 
       const assistantMsg: MessageItem = {
         id: (Date.now() + 1).toString(),
@@ -88,7 +74,7 @@ export default function ChatPage() {
       const errorMsg: MessageItem = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "Sorry, I am unable to connect to the weather service right now. Please try asking your question again in a moment.",
+        content: "Unable to connect to weather decision support engine right now.",
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -96,134 +82,114 @@ export default function ChatPage() {
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSend(inputMessage);
+  };
+
+  const promptShortcuts = [
+    { label: "Rain Forecast Noida", text: "Will it rain in Noida today?" },
+    { label: "Pesticide Spray Timing", text: "Kal pesticide spray kar sakta hoon?" },
+    { label: "Heat Wave Alert Check", text: "Is there a heatwave warning in Rajasthan?" },
+    { label: "Travel Safety Guide", text: "Are there thunderstorm alerts for Delhi road travel tonight?" },
+  ];
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
-      {/* Header & Language Selector */}
-      <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <span>🤖</span> WeatherGPT AI Assistant
-          </h1>
-          <p className="text-xs text-slate-400">
-            Multilingual AI grounded in real weather data.
+      {/* Header with Agent Name + LiveIndicator + Language Toggle */}
+      <div className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-high shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center space-x-2">
+            <div className="p-1.5 bg-primary text-on-primary rounded-lg">
+              <Bot className="w-5 h-5" />
+            </div>
+            <h1 className="text-headline-sm font-bold text-on-surface tracking-tight">
+              WeatherGPT AI Decision Support
+            </h1>
+          </div>
+          <p className="text-body-sm text-on-surface-variant">
+            Natural-language assistant grounded in real-time NWP telemetry & IMD bulletins.
           </p>
         </div>
 
-        {/* Language Selector Buttons */}
-        <div className="flex items-center space-x-1.5 bg-slate-950 p-1.5 rounded-lg border border-slate-800">
-          <span className="text-[11px] text-slate-400 font-medium px-2">Language:</span>
-          <button
-            type="button"
-            onClick={() => setSelectedLanguage("en")}
-            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-              selectedLanguage === "en"
-                ? "bg-blue-600 text-white"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            English
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedLanguage("hi-en")}
-            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-              selectedLanguage === "hi-en"
-                ? "bg-emerald-600 text-white"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Hinglish
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedLanguage("hi")}
-            className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-              selectedLanguage === "hi"
-                ? "bg-amber-600 text-white"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            हिंदी
-          </button>
+        <div className="flex items-center space-x-3 shrink-0">
+          <LiveIndicator status="connected" />
+
+          {/* Language Selector (EN / HI / Hinglish) */}
+          <div className="flex items-center space-x-1 bg-surface-container p-1 rounded-lg border border-outline-variant/40">
+            <Languages className="w-3.5 h-3.5 text-on-surface-variant ml-1" />
+            <button
+              type="button"
+              onClick={() => setSelectedLanguage("en")}
+              className={`px-2.5 py-1 text-xs rounded-md font-bold transition-all ${
+                selectedLanguage === "en"
+                  ? "bg-primary text-on-primary"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedLanguage("hi-en")}
+              className={`px-2.5 py-1 text-xs rounded-md font-bold transition-all ${
+                selectedLanguage === "hi-en"
+                  ? "bg-primary text-on-primary"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              Hinglish
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedLanguage("hi")}
+              className={`px-2.5 py-1 text-xs rounded-md font-bold transition-all ${
+                selectedLanguage === "hi"
+                  ? "bg-primary text-on-primary"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              HI
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Chat Messages */}
-      <div className="bg-slate-900/40 rounded-xl border border-slate-800 p-4 min-h-[450px] max-h-[600px] overflow-y-auto space-y-4">
-        {messages.map((msg, idx) => (
-          <div
-            key={msg.id}
-            className={`flex flex-col ${
-              msg.role === "user" ? "items-end" : "items-start"
-            }`}
+      {/* Suggested Question Chips Row */}
+      <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+        <span className="text-label-caps text-on-surface-variant shrink-0 flex items-center gap-1">
+          <HelpCircle className="w-3.5 h-3.5 text-outline" /> Suggested:
+        </span>
+        {promptShortcuts.map((ps, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => handleSend(ps.text)}
+            className="text-body-sm bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant hover:text-on-surface px-3 py-1.5 rounded-lg border border-outline-variant/40 transition-all shrink-0 font-medium"
           >
-            <div
-              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                msg.role === "user"
-                  ? "bg-blue-600 text-white rounded-br-none shadow-md"
-                  : "bg-slate-800 text-slate-100 border border-slate-700/80 rounded-bl-none shadow-md"
-              }`}
-            >
-              {/* Formatted Markdown Output */}
-              <div className="prose prose-invert prose-sm max-w-none text-slate-100 leading-relaxed">
-                <ReactMarkdown>{msg.content}</ReactMarkdown>
-              </div>
+            {ps.label}
+          </button>
+        ))}
+      </div>
 
-              {/* Language Tag */}
-              {msg.language && (
-                <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 flex items-center justify-between gap-2">
-                  <span>WeatherGPT Response</span>
-                  <span className="uppercase font-mono font-bold bg-slate-900/80 px-1.5 py-0.5 rounded text-blue-300">
-                    {msg.language === "hi-en" ? "Hinglish" : msg.language === "hi" ? "Hindi" : "English"}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Expandable Source Data Used Section */}
-            {msg.role === "assistant" && (msg.data_used || msg.tool_calls_made) && (
-              <div className="mt-2 max-w-[85%] w-full">
-                <button
-                  onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center space-x-1 font-medium bg-slate-900/80 px-3 py-1 rounded border border-slate-800 transition-colors"
-                >
-                  <span>🔍 {expandedIndex === idx ? "Hide Telemetry Audit" : "View Telemetry Audit"}</span>
-                  <span className="text-[10px]">({msg.tool_calls_made?.length || 0} data source check(s))</span>
-                </button>
-
-                {expandedIndex === idx && (
-                  <div className="mt-2 p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs font-mono space-y-3">
-                    {/* Tool Calls Audit Trail */}
-                    {msg.tool_calls_made && msg.tool_calls_made.length > 0 && (
-                      <div>
-                        <div className="font-semibold text-slate-300 mb-1">Data Sources Queried:</div>
-                        <ul className="space-y-1 text-slate-400">
-                          {msg.tool_calls_made.map((tc, tIdx) => (
-                            <li key={tIdx} className="bg-slate-900 p-1.5 rounded border border-slate-800">
-                              <span className="text-blue-400 font-bold">{tc.tool_name}</span> → {tc.result_summary}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+      {/* Scrollable Message List */}
+      <div className="bg-surface-container-low rounded-xl border border-surface-container-high p-4 sm:p-6 min-h-[460px] max-h-[600px] overflow-y-auto space-y-4">
+        {messages.map((msg) => (
+          <ChatBubble key={msg.id} message={msg} />
         ))}
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-slate-800/80 text-slate-300 rounded-2xl rounded-bl-none px-4 py-3 text-sm flex items-center space-x-2 border border-slate-700/60">
-              <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              <span>Checking weather data and generating answer...</span>
+            <div className="bg-surface-container-lowest text-on-surface-variant rounded-2xl rounded-tl-none p-4 text-body-sm flex items-center space-x-3 border border-surface-container-high shadow-sm">
+              <Loader2 className="w-4 h-4 text-primary animate-spin" />
+              <span>Querying telemetry data sources & compiling grounded response...</span>
             </div>
           </div>
         )}
+        <div ref={chatBottomRef} />
       </div>
 
-      {/* Input Form */}
+      {/* Input Form with Primary Color Button */}
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
@@ -232,18 +198,19 @@ export default function ChatPage() {
               ? "Hinglish me pucho (e.g. Kal pesticide spray kar sakta hoon?)"
               : selectedLanguage === "hi"
               ? "हिंदी में पूछें (उदा. क्या कल बारिश होगी?)"
-              : "Ask a question (e.g. Will it rain tomorrow evening in Noida?)"
+              : "Ask a natural-language weather question (e.g. Will it rain in Noida today?)"
           }
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
-          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+          className="flex-1 bg-surface-container-lowest border border-outline-variant/40 rounded-xl px-4 py-3 text-body-sm text-on-surface placeholder-on-surface-variant/60 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all shadow-sm"
         />
         <button
           type="submit"
           disabled={loading || !inputMessage.trim()}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold px-6 py-3 rounded-xl text-sm transition-colors shrink-0 shadow-lg shadow-blue-600/30"
+          className="bg-primary hover:bg-primary-container disabled:opacity-50 text-on-primary font-bold px-6 py-3 rounded-xl text-body-sm transition-all shrink-0 shadow-sm flex items-center space-x-2"
         >
-          Send
+          <span>Send</span>
+          <Send className="w-4 h-4" />
         </button>
       </form>
     </div>
