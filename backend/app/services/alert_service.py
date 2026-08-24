@@ -1,57 +1,44 @@
 """
-Alert Service — in-memory alert store + normalisation layer.
+Alert Service — in-memory alert store + normalisation layer + live IMD CAP RSS feed fetcher.
 
 Architecture
 ------------
-                        ┌──────────────────────┐
-  (Section 8) IMD feed ─►  alert_service.py     ├──► in-memory store
-  (now)   mock seeding ─►  normalise_alert()    │
-                        └──────┬───────────────┘
-                               │ get_active_alerts(lat, lon)
-                        ┌──────▼───────────────┐
-                        │  risk_engine.py       │  official_warning_severity
-                        └──────────────────────┘
-
-In-memory store (Section 7 placeholder)
-----------------------------------------
-Alerts are stored in a module-level list.  Expiry is checked on every read.
-Section 8 will replace this with a Supabase table and a real-time subscription.
-
-TODO (Section 8): replace _store and its helpers with Supabase client calls.
-
-Mock data
----------
-On import, three realistic mock alerts are seeded that match the shape of real
-IMD bulletins (Delhi/NCR heavy rain, Uttar Pradesh thunderstorm, Rajasthan heat
-wave).  They all have expiry_time set 24 hours from server startup so they are
-immediately active and easy to test against.
-
-To swap in the real IMD feed:
-  1. Remove the _seed_mock_alerts() call at module bottom.
-  2. Implement fetch_imd_alerts() using httpx to hit the IMD API / TIGGE endpoint.
-  3. Call normalise_alert() on each raw bulletin before storing.
-  4. Wire a background task (APScheduler / asyncio) to poll every N minutes.
+                        ┌──────────────────────────────┐
+  IMD CAP RSS feed ───► │  fetch_live_imd_alerts()     │
+                        └──────────────┬───────────────┘
+                                       │ fallback if empty/error
+                        ┌──────────────▼───────────────┐
+  Mock generator ─────► │  _seed_mock_alerts()         ├──► in-memory / Supabase store
+                        └──────────────┬───────────────┘
+                                       │ get_active_alerts(lat, lon)
+                        ┌──────────────▼───────────────┐
+                        │  risk_engine.py              │  official_warning_severity
+                        └──────────────────────────────┘
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Dict, List, Optional
 
+import httpx
+
+from app.db.supabase_client import get_supabase_client
 from app.schemas.alert import Alert, AlertSeverity, AlertType
 
-
-import logging
-from app.db.supabase_client import get_supabase_client
-
 logger = logging.getLogger(__name__)
+
+IMD_CAP_RSS_URL = "https://cap-sources.s3.amazonaws.com/in-imd-en/rss.xml"
 
 # ---------------------------------------------------------------------------
 # Store & Supabase Mappers
 # ---------------------------------------------------------------------------
 
-_store: Dict[str, Alert] = {}  # id → Alert fallback store
+_store: Dict[str, Alert] = {}  # id → Alert store
 
 
 def _now_utc() -> datetime:
@@ -96,7 +83,7 @@ def _row_to_alert(row: dict) -> Alert:
         affected_location=row.get("affected_location", ""),
         issue_time=issue_time,
         expiry_time=expiry_time,
-        source=row.get("source", "IMD"),
+        source=row.get("source", "IMD Live"),
         instructions=row.get("instructions", ""),
     )
 
@@ -108,8 +95,6 @@ def _row_to_alert(row: dict) -> Alert:
 def add_alert(alert: Alert) -> Alert:
     """
     Add or replace an alert in the store.
-    Callers include the mock seeder, the POST /api/alerts/ingest endpoint.
-    Returns the stored alert for chaining.
     """
     _store[alert.id] = alert
     try:
@@ -125,7 +110,7 @@ def get_all_alerts() -> List[Alert]:
     try:
         supabase = get_supabase_client()
         res = supabase.table("alerts").select("*").execute()
-        if res.data is not None:
+        if res.data is not None and len(res.data) > 0:
             return [_row_to_alert(row) for row in res.data]
     except Exception as exc:
         logger.warning("Supabase alerts read failed: %s. Falling back to in-memory store.", exc)
@@ -135,7 +120,11 @@ def get_all_alerts() -> List[Alert]:
 def get_active_alerts() -> List[Alert]:
     """
     Return only non-expired alerts, ordered most-severe first.
+    If store is empty, attempts a live fetch / mock seed automatically.
     """
+    if not _store:
+        fetch_and_store_alerts()
+
     now_iso = _now_utc().isoformat()
     try:
         supabase = get_supabase_client()
@@ -169,28 +158,20 @@ def get_active_alerts() -> List[Alert]:
     )
 
 
-
 def get_active_alerts_for_location(
     lat: float, lon: float, radius_km: float = 200.0
 ) -> List[Alert]:
     """
     Return active alerts that geographically affect the given coordinates.
-
-    Proximity check uses a simple great-circle approximation
-    (1° ≈ 111 km).  For alerts without coordinates, they are included
-    conservatively (we assume they may cover the queried point).
-
-    Section 8: replace with a PostGIS ST_DWithin query on Supabase.
     """
     active = get_active_alerts()
     result: List[Alert] = []
     for alert in active:
         if alert.affected_lat is None or alert.affected_lon is None:
-            result.append(alert)  # no coords → include conservatively
+            result.append(alert)  # include conservatively if no exact coordinates
             continue
-        # Simple Euclidean approximation in degrees → km
         dlat = (lat - alert.affected_lat) * 111.0
-        dlon = (lon - alert.affected_lon) * 111.0 * 0.85  # cos(avg lat) ≈ 0.85 for India
+        dlon = (lon - alert.affected_lon) * 111.0 * 0.85
         dist_km = (dlat ** 2 + dlon ** 2) ** 0.5
         effective_radius = alert.affected_radius_km or radius_km
         if dist_km <= effective_radius:
@@ -203,12 +184,6 @@ def get_alert_data_for_risk_engine(
 ) -> Optional[Dict[str, str]]:
     """
     Return the alert_data dict expected by risk_engine.calculate_risk().
-
-    Format: {"max_level": "minor" | "moderate" | "severe" | "extreme"}
-    Returns None if no active alerts affect the location.
-
-    The risk engine's official_warning_severity component reads max_level
-    and maps it to a 0–1 severity weight.
     """
     alerts = get_active_alerts_for_location(lat, lon)
     if not alerts:
@@ -224,39 +199,58 @@ def get_alert_data_for_risk_engine(
     return {"max_level": highest.severity.value}
 
 
+def _infer_alert_type(title: str, desc: str) -> AlertType:
+    text = (title + " " + desc).lower()
+    if "extremely heavy" in text or "very heavy rain" in text:
+        return AlertType.VERY_HEAVY_RAIN
+    if "heavy rain" in text or "rainfall" in text:
+        return AlertType.HEAVY_RAIN
+    if "thunderstorm" in text or "lightning" in text:
+        return AlertType.THUNDERSTORM
+    if "cyclone" in text or "depress" in text:
+        return AlertType.CYCLONE
+    if "heat wave" in text or "heatwave" in text:
+        return AlertType.HEAT_WAVE
+    if "cold wave" in text or "coldwave" in text:
+        return AlertType.COLD_WAVE
+    if "flood" in text:
+        return AlertType.FLOOD
+    if "wind" in text or "gale" in text:
+        return AlertType.STRONG_WIND
+    if "fog" in text:
+        return AlertType.DENSE_FOG
+    if "hail" in text:
+        return AlertType.HAILSTORM
+    if "dust" in text:
+        return AlertType.DUST_STORM
+    return AlertType.OTHER
+
+
 def normalise_alert(raw: dict) -> Alert:
     """
-    Normalise a raw IMD bulletin dict into an Alert schema object.
-
-    TODO (Section 8): flesh this out to match the real IMD TIGGE / CAP XML
-    fields.  For now it handles the mock dict structure used by _seed_mock_alerts().
-
-    Expected raw keys (matching IMD CAP 1.2 alert element names):
-      identifier, event, severity, areaDesc, sent, expires, description,
-      latitude (optional), longitude (optional), radius_km (optional)
+    Normalise a raw alert dict into an Alert schema object.
     """
     severity_map = {
-        "yellow":   AlertSeverity.MINOR,
-        "orange":   AlertSeverity.MODERATE,
-        "red":      AlertSeverity.SEVERE,
-        "extreme":  AlertSeverity.EXTREME,
-        # already normalised values pass through:
-        "minor":    AlertSeverity.MINOR,
+        "yellow": AlertSeverity.MINOR,
+        "orange": AlertSeverity.MODERATE,
+        "red": AlertSeverity.SEVERE,
+        "extreme": AlertSeverity.EXTREME,
+        "minor": AlertSeverity.MINOR,
         "moderate": AlertSeverity.MODERATE,
-        "severe":   AlertSeverity.SEVERE,
+        "severe": AlertSeverity.SEVERE,
     }
     event_map = {
-        "heavy_rain":      AlertType.HEAVY_RAIN,
+        "heavy_rain": AlertType.HEAVY_RAIN,
         "very_heavy_rain": AlertType.VERY_HEAVY_RAIN,
-        "thunderstorm":    AlertType.THUNDERSTORM,
-        "cyclone":         AlertType.CYCLONE,
-        "heat_wave":       AlertType.HEAT_WAVE,
-        "cold_wave":       AlertType.COLD_WAVE,
-        "flood":           AlertType.FLOOD,
-        "strong_wind":     AlertType.STRONG_WIND,
-        "dense_fog":       AlertType.DENSE_FOG,
-        "hailstorm":       AlertType.HAILSTORM,
-        "dust_storm":      AlertType.DUST_STORM,
+        "thunderstorm": AlertType.THUNDERSTORM,
+        "cyclone": AlertType.CYCLONE,
+        "heat_wave": AlertType.HEAT_WAVE,
+        "cold_wave": AlertType.COLD_WAVE,
+        "flood": AlertType.FLOOD,
+        "strong_wind": AlertType.STRONG_WIND,
+        "dense_fog": AlertType.DENSE_FOG,
+        "hailstorm": AlertType.HAILSTORM,
+        "dust_storm": AlertType.DUST_STORM,
     }
 
     return Alert(
@@ -269,28 +263,118 @@ def normalise_alert(raw: dict) -> Alert:
         affected_radius_km=raw.get("radius_km"),
         issue_time=raw.get("sent", _now_utc()),
         expiry_time=raw.get("expires", _now_utc() + timedelta(hours=24)),
-        source=raw.get("source", "IMD"),
+        source=raw.get("source", "IMD Live"),
         instructions=raw.get("description", raw.get("instructions", "No instructions provided.")),
         is_mock=raw.get("is_mock", False),
     )
 
 
 # ---------------------------------------------------------------------------
-# Mock alert seeder
-# TODO (Section 8): remove this and replace with real IMD feed poller
+# Live IMD CAP RSS Feed Fetcher & Fallback
 # ---------------------------------------------------------------------------
+
+def fetch_live_imd_alerts() -> List[Alert]:
+    """
+    Fetch and parse live CAP alerts from the IMD public RSS feed.
+    Maps CAP/RSS fields to Alert schema with source="IMD Live".
+    If fetch fails, times out, or returns zero alerts, returns empty list.
+    """
+    ns = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
+    try:
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.get(IMD_CAP_RSS_URL)
+            if resp.status_code != 200:
+                logger.warning("IMD RSS feed returned HTTP %s", resp.status_code)
+                return []
+
+            root = ET.fromstring(resp.text)
+            items = root.findall(".//item")
+            if not items:
+                logger.info("IMD RSS feed returned 0 active alert items.")
+                return []
+
+            live_alerts: List[Alert] = []
+            for item in items:
+                title = item.findtext("title", "")
+                desc = item.findtext("description", "")
+                guid = item.findtext("guid", "")
+                link = item.findtext("link", "")
+                pub_date_str = item.findtext("pubDate", "")
+
+                event_title = title or "Weather Warning"
+                severity = AlertSeverity.SEVERE if "extremely" in desc.lower() or "extremely" in title.lower() else AlertSeverity.MODERATE
+                affected_location = "India"
+                if " over " in desc:
+                    affected_location = desc.split(" over ")[-1].strip(". ")
+                elif " in " in desc:
+                    affected_location = desc.split(" in ")[-1].strip(". ")
+
+                instructions = desc or "Exercise caution and follow IMD safety directives."
+                issue_time = _now_utc()
+                expiry_time = _now_utc() + timedelta(hours=24)
+
+                if pub_date_str:
+                    try:
+                        dt = parsedate_to_datetime(pub_date_str)
+                        if dt:
+                            issue_time = dt
+                            expiry_time = dt + timedelta(hours=24)
+                    except Exception:
+                        pass
+
+                # Fast attempt for detail XML (1.0s timeout per link)
+                if link and link.endswith(".xml"):
+                    try:
+                        dresp = client.get(link, timeout=1.0)
+                        if dresp.status_code == 200:
+                            droot = ET.fromstring(dresp.text)
+                            info = droot.find("cap:info", ns)
+                            if info is not None:
+                                cap_sev = (info.findtext("cap:severity", "", ns) or "").lower()
+                                if cap_sev == "extreme":
+                                    severity = AlertSeverity.EXTREME
+                                elif cap_sev == "severe":
+                                    severity = AlertSeverity.SEVERE
+                                elif cap_sev == "moderate":
+                                    severity = AlertSeverity.MODERATE
+                                elif cap_sev == "minor":
+                                    severity = AlertSeverity.MINOR
+
+                                area_elem = info.find("cap:area", ns)
+                                if area_elem is not None:
+                                    area_desc = area_elem.findtext("cap:areaDesc", "", ns)
+                                    if area_desc:
+                                        affected_location = area_desc
+                    except Exception:
+                        pass
+
+                alert_type = _infer_alert_type(event_title, desc)
+                alert_id = guid or link or f"IMD-LIVE-{len(live_alerts)+1}"
+
+                alert = Alert(
+                    id=alert_id,
+                    alert_type=alert_type,
+                    severity=severity,
+                    affected_location=affected_location,
+                    issue_time=issue_time,
+                    expiry_time=expiry_time,
+                    source="IMD Live",
+                    instructions=instructions,
+                    is_mock=False,
+                )
+                live_alerts.append(alert)
+
+            return live_alerts
+
+    except Exception as exc:
+        logger.warning("Failed to fetch live IMD CAP alerts: %s", exc)
+        return []
+
 
 def _seed_mock_alerts() -> None:
     """
-    Seed three realistic mock alerts that mirror real IMD bulletins.
-    All expire 24 hours from server startup.
-
-    ─── REPLACE THIS FUNCTION IN SECTION 8 ───────────────────────────────
-    When the live IMD feed is available:
-      1. Delete this function and its call below.
-      2. Implement fetch_imd_alerts() with httpx.
-      3. Schedule it to run every 30 minutes via a FastAPI lifespan task.
-    ───────────────────────────────────────────────────────────────────────
+    Seed realistic mock alerts labeled source="IMD Mock".
+    Used as a robust fallback when live feed is empty or unavailable.
     """
     now = _now_utc()
     expiry = now + timedelta(hours=24)
@@ -299,7 +383,7 @@ def _seed_mock_alerts() -> None:
         {
             "identifier": "IMD-MOCK-001-DL-RAIN",
             "event": "heavy_rain",
-            "severity": "orange",   # IMD orange → moderate
+            "severity": "orange",
             "areaDesc": "Delhi / NCR (including Noida, Gurugram, Faridabad)",
             "latitude": 28.61,
             "longitude": 77.21,
@@ -317,7 +401,7 @@ def _seed_mock_alerts() -> None:
         {
             "identifier": "IMD-MOCK-002-UP-TSTORM",
             "event": "thunderstorm",
-            "severity": "yellow",   # IMD yellow → minor
+            "severity": "yellow",
             "areaDesc": "Uttar Pradesh (Western districts: Agra, Mathura, Aligarh)",
             "latitude": 27.18,
             "longitude": 78.01,
@@ -335,7 +419,7 @@ def _seed_mock_alerts() -> None:
         {
             "identifier": "IMD-MOCK-003-RJ-HEAT",
             "event": "heat_wave",
-            "severity": "red",      # IMD red → severe
+            "severity": "red",
             "areaDesc": "Rajasthan (Barmer, Jaisalmer, Bikaner, Churu districts)",
             "latitude": 27.2,
             "longitude": 70.9,
@@ -346,8 +430,7 @@ def _seed_mock_alerts() -> None:
             "description": (
                 "Severe heat wave conditions. Maximum temperatures likely to exceed 46°C. "
                 "Avoid outdoor exposure between 11 AM and 6 PM. Drink water every 30 minutes. "
-                "Signs of heat stroke: high body temperature, no sweating, confusion — "
-                "call 108 immediately."
+                "Call 108 immediately if feeling dizzy."
             ),
             "is_mock": True,
         },
@@ -358,6 +441,25 @@ def _seed_mock_alerts() -> None:
         add_alert(alert)
 
 
-# Seed mock data on module import.
-# TODO (Section 8): replace with live IMD feed scheduler.
-_seed_mock_alerts()
+def fetch_and_store_alerts() -> List[Alert]:
+    """
+    Attempts to fetch live IMD alerts. If found, stores them with source="IMD Live".
+    If none found or request fails, seeds mock fallback alerts with source="IMD Mock".
+    """
+    live_alerts = fetch_live_imd_alerts()
+    if live_alerts:
+        logger.info("Successfully fetched %d live IMD alerts.", len(live_alerts))
+        # Clear mock alerts when live alerts are present
+        _store.clear()
+        for a in live_alerts:
+            add_alert(a)
+    else:
+        logger.info("No live IMD alerts found or feed unavailable. Falling back to IMD Mock alerts.")
+        if not _store:
+            _seed_mock_alerts()
+
+    return list(_store.values())
+
+
+# Seed alerts on startup
+fetch_and_store_alerts()
