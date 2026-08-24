@@ -1,0 +1,223 @@
+"""
+Query Orchestrator — the agentic tool-calling loop.
+
+Flow
+----
+1. Build the initial message list with system prompt + user question.
+2. Send to Groq with our tool definitions.
+3. If Groq responds with tool_calls:
+     a. Execute each requested tool against our REAL backend services.
+     b. Append the tool result(s) back as "tool" role messages.
+     c. Loop — send the updated message list back to Groq.
+4. When Groq responds with plain text (no more tool calls): done.
+5. Return the final answer, all raw data collected, and an audit trail
+   of every tool call made.
+
+Safety
+------
+- MAX_TOOL_ROUNDS prevents an infinite loop if the model keeps requesting
+  tools without converging.
+- The orchestrator NEVER lets tool exceptions bubble to the LLM as raw
+  Python tracebacks — it serialises them as JSON error objects so the LLM
+  can respond gracefully (e.g. "I couldn't retrieve data for that location").
+- All weather numbers injected into the conversation come exclusively from
+  actual tool returns — the LLM has no way to invent data.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, List, Tuple
+
+from app.schemas.chat import ChatResponse, ToolCall
+from app.services.groq_service import (
+    DEFAULT_MODEL,
+    MAX_TOKENS,
+    SYSTEM_PROMPT,
+    TOOL_DEFINITIONS,
+    get_groq_client,
+)
+from app.services.location_service import GeocodingServiceError, geocode
+from app.services.weather_service import WeatherServiceError, get_forecast
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_ROUNDS = 6  # safety cap on back-and-forth iterations
+
+
+# ---------------------------------------------------------------------------
+# Tool dispatcher  — maps LLM tool names → real backend coroutines
+# ---------------------------------------------------------------------------
+
+async def _execute_tool(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    data_used: Dict[str, Any],
+    tool_calls_made: List[ToolCall],
+) -> str:
+    """
+    Execute the named tool with the given arguments.
+    Returns a JSON string to be sent back to the LLM as a tool result.
+    Updates data_used and tool_calls_made in-place for audit purposes.
+    """
+    result_payload: Any
+
+    try:
+        if tool_name == "search_location":
+            query: str = arguments["query"]
+            locations = await geocode(query)
+
+            if not locations:
+                result_payload = {"locations": [], "message": f"No locations found for '{query}'."}
+                summary = f"No results for '{query}'"
+            else:
+                result_payload = {
+                    "locations": [loc.model_dump() for loc in locations],
+                    "count": len(locations),
+                }
+                top = locations[0]
+                summary = (
+                    f"Found {len(locations)} result(s). "
+                    f"Top: {top.name}, {top.country} "
+                    f"(lat={top.latitude}, lon={top.longitude})"
+                )
+
+            data_used["search_location"] = result_payload
+
+        elif tool_name == "get_weather":
+            lat: float = float(arguments["lat"])
+            lon: float = float(arguments["lon"])
+            forecast = await get_forecast(lat, lon)
+
+            result_payload = forecast.model_dump()
+            summary = (
+                f"Retrieved weather for ({lat}, {lon}): "
+                f"current temp {forecast.current.temperature_2m}°C, "
+                f"humidity {forecast.current.relative_humidity_2m}%, "
+                f"precipitation {forecast.current.precipitation}mm"
+            )
+            data_used["get_weather"] = result_payload
+
+        else:
+            result_payload = {"error": f"Unknown tool: {tool_name}"}
+            summary = f"Unknown tool '{tool_name}'"
+
+    except (WeatherServiceError, GeocodingServiceError) as exc:
+        result_payload = {"error": str(exc)}
+        summary = f"Tool error: {exc}"
+        logger.warning("Tool %s error: %s", tool_name, exc)
+
+    except (KeyError, TypeError, ValueError) as exc:
+        result_payload = {"error": f"Invalid tool arguments: {exc}"}
+        summary = f"Argument error: {exc}"
+        logger.warning("Tool %s argument error: %s", tool_name, exc)
+
+    tool_calls_made.append(
+        ToolCall(tool_name=tool_name, arguments=arguments, result_summary=summary)
+    )
+
+    return json.dumps(result_payload, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Main orchestration entry point
+# ---------------------------------------------------------------------------
+
+async def answer_weather_question(user_message: str) -> ChatResponse:
+    """
+    Run the full agentic loop for a user weather question.
+
+    1. Sends the question to Groq with tool definitions.
+    2. Executes any tool calls against real backend services.
+    3. Feeds results back and repeats until Groq gives a final text answer.
+    4. Returns a ChatResponse with the answer, raw data, and tool audit trail.
+
+    Raises OrchestratorError for non-recoverable failures (e.g. missing API key,
+    Groq API error, loop exceeded).
+    """
+    client = get_groq_client()
+
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    data_used: Dict[str, Any] = {}
+    tool_calls_made: List[ToolCall] = []
+
+    for round_num in range(MAX_TOOL_ROUNDS):
+        logger.debug("Orchestrator round %d — sending %d messages", round_num + 1, len(messages))
+
+        response = await client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=messages,  # type: ignore[arg-type]
+            tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
+            tool_choice="auto",
+            max_tokens=MAX_TOKENS,
+        )
+
+        choice = response.choices[0]
+        msg = choice.message
+
+        # ── Groq returned tool call(s) ──────────────────────────────────────
+        if choice.finish_reason == "tool_calls" and msg.tool_calls:
+            # Append the assistant's "I want to call tools" turn
+            messages.append(msg.model_dump(exclude_unset=False))
+
+            # Execute all requested tools (Groq can request multiple at once)
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    arguments = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    arguments = {}
+
+                logger.info("Executing tool: %s(%s)", tool_name, arguments)
+
+                tool_result = await _execute_tool(
+                    tool_name, arguments, data_used, tool_calls_made
+                )
+
+                # Append the tool result for Groq to read
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": tool_result,
+                })
+
+            # Loop back — let Groq decide if it needs more tools or can answer
+            continue
+
+        # ── Groq gave a final text answer ───────────────────────────────────
+        final_answer = (msg.content or "").strip()
+
+        if not final_answer:
+            final_answer = (
+                "I was unable to generate a response. "
+                "Please check your question and try again."
+            )
+
+        return ChatResponse(
+            answer=final_answer,
+            data_used=data_used,
+            tool_calls_made=tool_calls_made,
+            model=response.model,
+        )
+
+    # If we exit the loop without a text answer, something went wrong
+    raise OrchestratorError(
+        f"LLM did not produce a final answer within {MAX_TOOL_ROUNDS} rounds. "
+        "This may indicate an issue with the model or tool definitions."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Custom exception
+# ---------------------------------------------------------------------------
+
+class OrchestratorError(Exception):
+    """Raised when the orchestration loop fails to produce an answer."""
+    def __init__(self, message: str, status_code: int = 500) -> None:
+        super().__init__(message)
+        self.status_code = status_code
