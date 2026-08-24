@@ -34,10 +34,11 @@ from app.schemas.chat import ChatResponse, ToolCall
 from app.services.groq_service import (
     DEFAULT_MODEL,
     MAX_TOKENS,
-    SYSTEM_PROMPT,
     TOOL_DEFINITIONS,
     get_groq_client,
+    get_system_prompt,
 )
+
 from app.services.location_service import GeocodingServiceError, geocode
 from app.services.weather_service import WeatherServiceError, get_forecast
 from app.services.advisory_engine import generate_advisories
@@ -92,14 +93,38 @@ async def _execute_tool(
             lon: float = float(arguments["lon"])
             forecast = await get_forecast(lat, lon)
 
-            result_payload = forecast.model_dump()
+            # Store full raw payload in data_used for UI transparency
+            data_used["get_weather"] = forecast.model_dump()
+
+            # Compact payload for LLM context to prevent rate-limit token bloat
+            result_payload = {
+                "latitude": forecast.latitude,
+                "longitude": forecast.longitude,
+                "timezone": forecast.timezone,
+                "current": forecast.current.model_dump(),
+                "hourly_next_24h": {
+                    "time": forecast.hourly.time[:24],
+                    "temperature": forecast.hourly.temperature_2m[:24],
+                    "precipitation": forecast.hourly.precipitation[:24],
+                    "precipitation_probability": forecast.hourly.precipitation_probability[:24],
+                    "wind_speed": forecast.hourly.wind_speed_10m[:24],
+                },
+                "daily_7day": {
+                    "time": forecast.daily.time,
+                    "temp_max": forecast.daily.temperature_2m_max,
+                    "temp_min": forecast.daily.temperature_2m_min,
+                    "precipitation_sum": forecast.daily.precipitation_sum,
+                    "precipitation_probability_max": forecast.daily.precipitation_probability_max,
+                    "wind_speed_max": forecast.daily.wind_speed_10m_max,
+                },
+            }
             summary = (
                 f"Retrieved weather for ({lat}, {lon}): "
                 f"current temp {forecast.current.temperature_2m}°C, "
                 f"humidity {forecast.current.relative_humidity_2m}%, "
                 f"precipitation {forecast.current.precipitation}mm"
             )
-            data_used["get_weather"] = result_payload
+
 
         elif tool_name == "get_risk":
             lat = float(arguments["lat"])
@@ -145,14 +170,16 @@ async def _execute_tool(
 # Main orchestration entry point
 # ---------------------------------------------------------------------------
 
-async def answer_weather_question(user_message: str) -> ChatResponse:
+async def answer_weather_question(
+    user_message: str, language: str = "en"
+) -> ChatResponse:
     """
     Run the full agentic loop for a user weather question.
 
-    1. Sends the question to Groq with tool definitions.
+    1. Sends the question to Groq with tool definitions and language-specific instructions.
     2. Executes any tool calls against real backend services.
     3. Feeds results back and repeats until Groq gives a final text answer.
-    4. Returns a ChatResponse with the answer, raw data, and tool audit trail.
+    4. Returns a ChatResponse with the answer, raw data, tool audit trail, and language.
 
     Raises OrchestratorError for non-recoverable failures (e.g. missing API key,
     Groq API error, loop exceeded).
@@ -160,7 +187,7 @@ async def answer_weather_question(user_message: str) -> ChatResponse:
     client = get_groq_client()
 
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_system_prompt(language)},
         {"role": "user", "content": user_message},
     ]
 
@@ -184,7 +211,11 @@ async def answer_weather_question(user_message: str) -> ChatResponse:
         # ── Groq returned tool call(s) ──────────────────────────────────────
         if choice.finish_reason == "tool_calls" and msg.tool_calls:
             # Append the assistant's "I want to call tools" turn
-            messages.append(msg.model_dump(exclude_unset=False))
+            assistant_turn: Dict[str, Any] = {"role": "assistant", "content": msg.content}
+            if msg.tool_calls:
+                assistant_turn["tool_calls"] = [tc.model_dump() for tc in msg.tool_calls]
+            messages.append(assistant_turn)
+
 
             # Execute all requested tools (Groq can request multiple at once)
             for tc in msg.tool_calls:
@@ -224,7 +255,9 @@ async def answer_weather_question(user_message: str) -> ChatResponse:
             data_used=data_used,
             tool_calls_made=tool_calls_made,
             model=response.model,
+            language=language,
         )
+
 
     # If we exit the loop without a text answer, something went wrong
     raise OrchestratorError(

@@ -65,8 +65,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         logger.warning("Supabase chat message write (user turn) failed: %s", exc)
 
     try:
-        response = await answer_weather_question(request.message)
+        response = await answer_weather_question(request.message, language=request.language)
         response.session_id = session_id
+
 
         logger.info(
             "Chat answered via %d tool call(s) using model %s",
