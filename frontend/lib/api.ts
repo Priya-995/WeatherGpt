@@ -3,7 +3,12 @@
  * Interacts with Python FastAPI backend via NEXT_PUBLIC_API_URL.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const getApiBaseUrl = () => {
+  const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  return url.replace(/\/$/, "");
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export interface LocationItem {
   id?: string;
