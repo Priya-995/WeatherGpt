@@ -40,6 +40,8 @@ from app.services.groq_service import (
 )
 from app.services.location_service import GeocodingServiceError, geocode
 from app.services.weather_service import WeatherServiceError, get_forecast
+from app.services.advisory_engine import generate_advisories
+from app.services.risk_engine import calculate_risk
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,23 @@ async def _execute_tool(
                 f"precipitation {forecast.current.precipitation}mm"
             )
             data_used["get_weather"] = result_payload
+
+        elif tool_name == "get_risk":
+            lat = float(arguments["lat"])
+            lon = float(arguments["lon"])
+            forecast = await get_forecast(lat, lon)
+            temp_result = calculate_risk(forecast, alert_data=None)
+            advisory = generate_advisories(forecast, risk_level=temp_result.level, alert_data=None)
+            risk_result = calculate_risk(forecast, alert_data=None, advisory=advisory)
+
+            result_payload = risk_result.model_dump()
+            summary = (
+                f"Risk level: {risk_result.level.value} "
+                f"(score={risk_result.score:.2f}). "
+                f"Active advisories: {len(risk_result.advisory.items)}. "
+                f"Summary: {risk_result.advisory.summary}"
+            )
+            data_used["get_risk"] = result_payload
 
         else:
             result_payload = {"error": f"Unknown tool: {tool_name}"}
