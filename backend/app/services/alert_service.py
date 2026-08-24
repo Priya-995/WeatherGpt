@@ -76,6 +76,9 @@ def _row_to_alert(row: dict) -> Alert:
     except ValueError:
         a_sev = AlertSeverity.MINOR
 
+    source = row.get("source", "IMD Live")
+    is_mock = "mock" in source.lower()
+
     return Alert(
         id=row["id"],
         alert_type=a_type,
@@ -83,8 +86,9 @@ def _row_to_alert(row: dict) -> Alert:
         affected_location=row.get("affected_location", ""),
         issue_time=issue_time,
         expiry_time=expiry_time,
-        source=row.get("source", "IMD Live"),
+        source=source,
         instructions=row.get("instructions", ""),
+        is_mock=is_mock,
     )
 
 
@@ -120,9 +124,10 @@ def get_all_alerts() -> List[Alert]:
 def get_active_alerts() -> List[Alert]:
     """
     Return only non-expired alerts, ordered most-severe first.
-    If store is empty, attempts a live fetch / mock seed automatically.
+    If store has only mock alerts or is empty, attempts a live IMD fetch.
     """
-    if not _store:
+    has_only_mocks = not _store or all(getattr(a, "is_mock", False) or "mock" in (a.source or "").lower() for a in _store.values())
+    if has_only_mocks:
         fetch_and_store_alerts()
 
     now_iso = _now_utc().isoformat()
@@ -131,13 +136,15 @@ def get_active_alerts() -> List[Alert]:
         res = supabase.table("alerts").select("*").gt("expiry_time", now_iso).execute()
         if res.data is not None and len(res.data) > 0:
             alerts = [_row_to_alert(row) for row in res.data]
-            severity_order = {
-                AlertSeverity.EXTREME: 0,
-                AlertSeverity.SEVERE: 1,
-                AlertSeverity.MODERATE: 2,
-                AlertSeverity.MINOR: 3,
-            }
-            return sorted(alerts, key=lambda a: severity_order.get(a.severity, 9))
+            live_alerts = [a for a in alerts if a.source == "IMD Live" or not a.is_mock]
+            if live_alerts:
+                severity_order = {
+                    AlertSeverity.EXTREME: 0,
+                    AlertSeverity.SEVERE: 1,
+                    AlertSeverity.MODERATE: 2,
+                    AlertSeverity.MINOR: 3,
+                }
+                return sorted(live_alerts, key=lambda a: severity_order.get(a.severity, 9))
     except Exception as exc:
         logger.warning("Supabase active alerts read failed: %s. Falling back to in-memory store.", exc)
 
@@ -168,7 +175,7 @@ def get_active_alerts_for_location(
     result: List[Alert] = []
     for alert in active:
         if alert.affected_lat is None or alert.affected_lon is None:
-            result.append(alert)  # include conservatively if no exact coordinates
+            result.append(alert)
             continue
         dlat = (lat - alert.affected_lat) * 111.0
         dlon = (lon - alert.affected_lon) * 111.0 * 0.85
@@ -311,18 +318,18 @@ def fetch_live_imd_alerts() -> List[Alert]:
 
                 instructions = desc or "Exercise caution and follow IMD safety directives."
                 issue_time = _now_utc()
-                expiry_time = _now_utc() + timedelta(hours=24)
 
                 if pub_date_str:
                     try:
                         dt = parsedate_to_datetime(pub_date_str)
                         if dt:
                             issue_time = dt
-                            expiry_time = dt + timedelta(hours=24)
                     except Exception:
                         pass
 
-                # Fast attempt for detail XML (1.0s timeout per link)
+                expiry_time = max(_now_utc() + timedelta(hours=48), issue_time + timedelta(hours=48))
+
+                # Fast attempt for detail CAP XML
                 if link and link.endswith(".xml"):
                     try:
                         dresp = client.get(link, timeout=1.0)
@@ -449,7 +456,6 @@ def fetch_and_store_alerts() -> List[Alert]:
     live_alerts = fetch_live_imd_alerts()
     if live_alerts:
         logger.info("Successfully fetched %d live IMD alerts.", len(live_alerts))
-        # Clear mock alerts when live alerts are present
         _store.clear()
         for a in live_alerts:
             add_alert(a)
@@ -461,5 +467,5 @@ def fetch_and_store_alerts() -> List[Alert]:
     return list(_store.values())
 
 
-# Seed alerts on startup
+# Fetch live alerts on startup
 fetch_and_store_alerts()
