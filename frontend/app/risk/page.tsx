@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { RiskResult, getRisk } from "@/lib/api";
+import { RiskReasonObject, RiskResult, getRisk } from "@/lib/api";
 
 const RiskMapClient = dynamic(() => import("@/components/RiskMapClient"), {
   ssr: false,
@@ -12,6 +12,12 @@ const RiskMapClient = dynamic(() => import("@/components/RiskMapClient"), {
     </div>
   ),
 });
+
+const formatValue = (val: any): string => {
+  if (val === undefined || val === null) return "";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+};
 
 export default function RiskMapPage() {
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lon: number }>({
@@ -43,7 +49,7 @@ export default function RiskMapPage() {
   };
 
   const getLevelBadgeClass = (level: string) => {
-    switch (level.toLowerCase()) {
+    switch (String(level || "").toLowerCase()) {
       case "critical":
         return "bg-red-500/20 text-red-400 border-red-500/40";
       case "high":
@@ -131,7 +137,8 @@ export default function RiskMapPage() {
                   <div>
                     <div className="text-xs text-slate-400">Composite Score</div>
                     <div className="text-3xl font-extrabold text-white">
-                      {(riskData.score * 100).toFixed(0)} <span className="text-xs font-normal text-slate-400">/ 100</span>
+                      {typeof riskData.score === "number" ? (riskData.score * 100).toFixed(0) : "0"}{" "}
+                      <span className="text-xs font-normal text-slate-400">/ 100</span>
                     </div>
                   </div>
 
@@ -140,7 +147,7 @@ export default function RiskMapPage() {
                       riskData.level
                     )}`}
                   >
-                    {riskData.level}
+                    {formatValue(riskData.level)}
                   </span>
                 </div>
 
@@ -151,7 +158,11 @@ export default function RiskMapPage() {
                     <div key={key} className="flex justify-between items-center text-slate-400">
                       <span className="capitalize">{key.replace("_", " ")}</span>
                       <span className="font-mono font-medium text-slate-200">
-                        {typeof val === "number" ? val.toFixed(2) : val}
+                        {typeof val === "number"
+                          ? val.toFixed(2)
+                          : typeof val === "object"
+                          ? JSON.stringify(val)
+                          : String(val)}
                       </span>
                     </div>
                   ))}
@@ -163,25 +174,33 @@ export default function RiskMapPage() {
                     <div className="font-semibold text-slate-300">Driver Factors:</div>
                     <ul className="space-y-2 text-slate-300">
                       {riskData.reasons.map((r, i) => {
-                        if (typeof r === "string") {
+                        if (!r) return null;
+
+                        if (typeof r !== "object") {
                           return (
                             <li key={i} className="flex items-start gap-1.5 bg-slate-950 p-2.5 rounded border border-slate-800">
                               <span className="text-blue-400 font-bold">•</span>
-                              <span>{r}</span>
+                              <span>{String(r)}</span>
                             </li>
                           );
                         }
 
-                        const { name, raw_value, unit, severity, threshold_note } = r;
-                        const valStr = raw_value !== undefined && raw_value !== null ? `${raw_value}${unit ? unit : ""}` : "";
+                        const name = formatValue(r.name);
+                        const rawValue = formatValue(r.raw_value);
+                        const unit = formatValue(r.unit);
+                        const severity = formatValue(r.severity);
+                        const thresholdNote = formatValue(r.threshold_note);
+
+                        const valStr = rawValue ? `${rawValue}${unit}` : "";
                         const titleLine = name ? (valStr ? `${name}: ${valStr}` : name) : valStr || "Factor";
                         const sevText = severity ? `${severity.charAt(0).toUpperCase() + severity.slice(1)} severity` : "";
                         const mainText = sevText ? `${titleLine} — ${sevText}` : titleLine;
 
+                        const sevLower = severity.toLowerCase();
                         const sevColor =
-                          severity?.toLowerCase() === "high" || severity?.toLowerCase() === "critical"
+                          sevLower === "high" || sevLower === "critical"
                             ? "text-red-400 font-semibold"
-                            : severity?.toLowerCase() === "moderate"
+                            : sevLower === "moderate"
                             ? "text-amber-400 font-semibold"
                             : "text-slate-200";
 
@@ -191,9 +210,9 @@ export default function RiskMapPage() {
                               <span className="text-blue-400 font-bold">•</span>
                               <span className={sevColor}>{mainText}</span>
                             </div>
-                            {threshold_note && (
+                            {thresholdNote && (
                               <div className="text-[11px] text-slate-400 pl-4 border-l border-slate-800">
-                                {threshold_note}
+                                {thresholdNote}
                               </div>
                             )}
                           </li>
@@ -204,14 +223,15 @@ export default function RiskMapPage() {
                 )}
               </div>
             ) : null}
-
           </div>
 
           {/* Summary Footer */}
           {riskData?.advisory?.summary && (
             <div className="pt-4 border-t border-slate-800 text-xs text-blue-300 bg-blue-950/20 p-3 rounded-lg border border-blue-900/30">
               <span className="font-bold text-blue-400">Advisory: </span>
-              {riskData.advisory.summary}
+              {typeof riskData.advisory.summary === "object"
+                ? JSON.stringify(riskData.advisory.summary)
+                : String(riskData.advisory.summary)}
             </div>
           )}
         </div>
