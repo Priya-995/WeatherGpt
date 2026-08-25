@@ -20,6 +20,7 @@ that comes from actual tool results.
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from typing import Any, Dict, List
 
@@ -27,6 +28,90 @@ from groq import AsyncGroq
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# ---------------------------------------------------------------------------
+# Language detection dictionaries & helpers
+# ---------------------------------------------------------------------------
+
+LANGUAGE_NAMES: Dict[str, str] = {
+    "en": "English",
+    "hi": "Hindi",
+    "hi-en": "Hinglish (Hindi in Latin script)",
+    "bn": "Bengali",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "mr": "Marathi",
+    "gu": "Gujarati",
+    "kn": "Kannada",
+    "ml": "Malayalam",
+    "pa": "Punjabi",
+    "or": "Odia",
+    "ur": "Urdu",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+}
+
+# Common Romanized Hindi/Hinglish vocabulary tokens
+HINGLISH_KEYWORDS = {
+    "kya", "kyu", "kyun", "kaise", "kaisa", "kaisi", "kab", "kahan", "kaha", "kidhar",
+    "kon", "kaun", "kitna", "kitni", "kitne", "kal", "aaj", "parso", "subah", "shaam",
+    "raat", "dopahar", "din", "mausam", "barish", "barsaat", "baarish", "paani", "pani",
+    "hawa", "badal", "dhoop", "garmi", "thand", "sardi", "toofan", "aandhi", "tapman",
+    "fasal", "khet", "kheti", "kisaan", "kisano", "spray", "pesticide", "fertilizer",
+    "khad", "kar", "kare", "karein", "karna", "karega", "karegi", "karenge", "sakta",
+    "sakti", "sakte", "chahiye", "hoga", "hogi", "honge", "hai", "hain", "hoon", "hu",
+    "tha", "thi", "the", "rahega", "rahegi", "rahenge", "batao", "bataiye", "boliye",
+    "bata", "dekh", "dekho", "mera", "meri", "mere", "mujhe", "mujhko", "hum", "hume",
+    "humein", "humara", "humari", "humare", "aap", "aapka", "aapki", "aapke", "tum",
+    "tumhara", "tumhari", "tumhare", "accha", "theek", "bhi", "nahi", "mat", "karo",
+    "pehle", "baad", "mein", "me", "par", "se", "ko", "ka", "ki", "ke", "namaste",
+    "chhatri", "gari", "gaadi", "chalo", "jaana", "ja sakte", "ruk", "suno"
+}
+
+
+def detect_language(text: str) -> str:
+    """
+    Detect the likely language/script of a given text.
+    Returns: 'hi', 'hi-en', 'bn', 'ta', 'te', 'mr', 'gu', 'pa', 'kn', 'ml', 'ur', or 'en'.
+    """
+    if not text or not text.strip():
+        return "en"
+
+    cleaned = text.strip()
+
+    # 1. Indic Unicode Script Checks
+    if re.search(r"[\u0900-\u097F]", cleaned):
+        return "hi"  # Devanagari (Hindi/Marathi)
+    if re.search(r"[\u0980-\u09FF]", cleaned):
+        return "bn"  # Bengali / Assamese
+    if re.search(r"[\u0B80-\u0BFF]", cleaned):
+        return "ta"  # Tamil
+    if re.search(r"[\u0C00-\u0C7F]", cleaned):
+        return "te"  # Telugu
+    if re.search(r"[\u0A80-\u0AFF]", cleaned):
+        return "gu"  # Gujarati
+    if re.search(r"[\u0A00-\u0A7F]", cleaned):
+        return "pa"  # Punjabi
+    if re.search(r"[\u0C80-\u0CFF]", cleaned):
+        return "kn"  # Kannada
+    if re.search(r"[\u0D00-\u0D7F]", cleaned):
+        return "ml"  # Malayalam
+    if re.search(r"[\u0B00-\u0B7F]", cleaned):
+        return "or"  # Odia
+    if re.search(r"[\u0600-\u06FF]", cleaned):
+        return "ur"  # Urdu / Arabic
+
+    # 2. Hinglish (Latin-script Hindi) Detection
+    words = re.findall(r"\b[a-zA-Z]+\b", cleaned.lower())
+    if words:
+        matches = [w for w in words if w in HINGLISH_KEYWORDS]
+        # If at least 1 strong indicator word or multiple words match
+        if len(matches) >= 1:
+            return "hi-en"
+
+    return "en"
 
 
 # ---------------------------------------------------------------------------
@@ -191,14 +276,32 @@ ANSWER STYLE:
 """
 
 
-def get_system_prompt(language: str = "en") -> str:
+def get_system_prompt(language: str = "auto") -> str:
     """
     Return the system prompt with language-specific instructions appended.
-    Supported languages: 'en' (English), 'hi' (Hindi), 'hi-en' (Hinglish).
+    Supported languages:
+      - 'auto': Automatically detect the user's language/script and respond in the same language.
+      - 'hi': Hindi (Devanagari script).
+      - 'hi-en': Hinglish (Hindi written in Latin/English script).
+      - 'en': English.
+      - Other standard language codes (e.g. 'bn', 'ta', 'te', 'mr', 'gu', 'pa', 'ur', 'es', 'fr').
     """
-    lang_code = (language or "en").lower().strip()
+    lang_code = (language or "auto").lower().strip()
 
-    if lang_code in ("hi", "hindi"):
+    if lang_code in ("auto", "detect", "auto-detect", "default"):
+        lang_instruction = (
+            "\n\nCRITICAL LANGUAGE & SCRIPT INSTRUCTION (AUTO-DETECT & MATCH USER LANGUAGE):\n"
+            "1. AUTOMATICALLY DETECT the language, script, and phrasing style used by the user in their question.\n"
+            "2. ALWAYS generate your entire response in the EXACT SAME language, script, and style as the user's message:\n"
+            "   - If the user asks in Hindi using Devanagari script (e.g. 'क्या कल बारिश होगी?'), you MUST respond entirely in Hindi using Devanagari script.\n"
+            "   - If the user asks in Hinglish / Latin-script Hindi (e.g. 'kal barish hogi kya?', 'Delhi me mausam kaisa rahega?'), you MUST respond in natural, conversational Hinglish (Hindi written in Latin/English script).\n"
+            "   - If the user asks in any regional Indian language (Bengali, Tamil, Telugu, Marathi, Gujarati, Punjabi, Kannada, Malayalam, Odia, Urdu, etc.), you MUST respond in that regional language and its authentic script.\n"
+            "   - If the user asks in English, respond in clear, natural English.\n"
+            "   - If the user asks in Spanish, French, German, or any other language, respond in that language.\n"
+            "3. NEVER revert or default to English if the user asked their question in Hindi, Hinglish, or any non-English language.\n"
+            "4. Numeric Accuracy: Keep all numeric values, temperatures (°C), precipitation (mm), wind speeds (km/h), percentages (%), dates, times, and place names exact and unchanged from the tool data."
+        )
+    elif lang_code in ("hi", "hindi"):
         lang_instruction = (
             "\n\nLANGUAGE INSTRUCTION: Respond entirely in Hindi using Devanagari script. "
             "Explain clearly in Hindi, but keep all numeric values, temperatures (°C), precipitation (mm), "
@@ -210,8 +313,15 @@ def get_system_prompt(language: str = "en") -> str:
             "For example: 'Aap kal pesticide spray nahi kar sakte kyunki 80% rain probability hai (2.5 mm rainfall expected).' "
             "Keep all numeric values, temperatures, wind speeds, percentages, and units exact and unchanged from the tool data."
         )
-    else:
+    elif lang_code in ("en", "english"):
         lang_instruction = "\n\nLANGUAGE INSTRUCTION: Respond in clear, natural English."
+    else:
+        lang_name = LANGUAGE_NAMES.get(lang_code, lang_code)
+        lang_instruction = (
+            f"\n\nLANGUAGE INSTRUCTION: Respond entirely in {lang_name}. "
+            "Keep all numeric values, temperatures (°C), precipitation (mm), wind speeds (km/h), "
+            "percentages (%), dates, and place names exact and unchanged from the tool data."
+        )
 
     return SYSTEM_PROMPT + lang_instruction
 

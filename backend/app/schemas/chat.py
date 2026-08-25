@@ -31,8 +31,8 @@ class ChatRequest(BaseModel):
         description="Optional session UUID to associate this message with an existing chat session.",
     )
     language: str = Field(
-        "en",
-        description="Preferred language for response: 'en' (English), 'hi' (Hindi), or 'hi-en' (Hinglish).",
+        "auto",
+        description="Preferred language for response: 'auto' (detect automatically), 'en' (English), 'hi' (Hindi), or 'hi-en' (Hinglish).",
     )
 
 
