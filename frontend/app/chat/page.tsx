@@ -7,9 +7,43 @@ import LiveIndicator from "@/components/ui/LiveIndicator";
 import { MessageItem } from "@/components/ui/ChatMessage";
 import { Bot, Send, Languages, HelpCircle, Loader2 } from "lucide-react";
 
+const HINGLISH_KEYWORDS = [
+  "kya", "kyu", "kyun", "kaise", "kaisa", "kaisi", "kab", "kahan", "kaha", "kidhar",
+  "kon", "kaun", "kitna", "kitni", "kitne", "kal", "aaj", "parso", "subah", "shaam",
+  "raat", "dopahar", "din", "mausam", "barish", "barsaat", "baarish", "paani", "pani",
+  "hawa", "badal", "dhoop", "garmi", "thand", "sardi", "toofan", "aandhi", "tapman",
+  "fasal", "khet", "kheti", "kisaan", "kisano", "spray", "pesticide", "fertilizer",
+  "khad", "kar", "kare", "karein", "karna", "karega", "karegi", "karenge", "sakta",
+  "sakti", "sakte", "chahiye", "hoga", "hogi", "honge", "hai", "hain", "hoon", "hu",
+  "tha", "thi", "the", "rahega", "rahegi", "rahenge", "batao", "bataiye", "boliye",
+  "bata", "dekh", "dekho", "mera", "meri", "mere", "mujhe", "mujhko", "hum", "hume",
+  "humein", "humara", "humari", "humare", "aap", "aapka", "aapki", "aapke", "tum",
+  "tumhara", "tumhari", "tumhare", "accha", "theek", "bhi", "nahi", "mat", "karo",
+  "pehle", "baad", "mein", "me", "par", "se", "ko", "ka", "ki", "ke", "namaste",
+  "chhatri", "gaadi", "chalo", "jaana"
+];
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  "en": "English",
+  "hi": "हिंदी (Hindi)",
+  "hi-en": "Hinglish",
+  "bn": "বাংলা (Bengali)",
+  "ta": "தமிழ் (Tamil)",
+  "te": "తెలుగు (Telugu)",
+  "mr": "मराठी (Marathi)",
+  "gu": "ગુજરાતી (Gujarati)",
+  "pa": "ਪੰਜਾਬੀ (Punjabi)",
+  "kn": "ಕನ್ನಡ (Kannada)",
+  "ml": "മലയാളം (Malayalam)",
+  "ur": "اردو (Urdu)",
+  "es": "Español",
+  "fr": "Français",
+  "de": "Deutsch",
+};
+
 export default function ChatPage() {
   const [inputMessage, setInputMessage] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState<"en" | "hi" | "hi-en">("en");
+  const [selectedLanguage, setSelectedLanguage] = useState<"auto" | "en" | "hi" | "hi-en">("auto");
   const [messages, setMessages] = useState<MessageItem[]>([
     {
       id: "welcome",
@@ -48,14 +82,14 @@ export default function ChatPage() {
       id: Date.now().toString(),
       role: "user",
       content: userText,
-      language: effectiveLang,
+      language: userMsgLang,
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const res: ChatResponse = await sendChat(userText, sessionId, effectiveLang);
+      const res: ChatResponse = await sendChat(userText, sessionId, langToSend);
 
       if (res.session_id) setSessionId(res.session_id);
 
@@ -66,7 +100,7 @@ export default function ChatPage() {
         data_used: res.data_used,
         tool_calls_made: res.tool_calls_made,
         model: res.model,
-        language: res.language || effectiveLang,
+        language: res.language || (selectedLanguage === "auto" ? detected : selectedLanguage),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -194,8 +228,10 @@ export default function ChatPage() {
         <input
           type="text"
           placeholder={
-            selectedLanguage === "hi-en"
-              ? "Hinglish me pucho (e.g. Kal pesticide spray kar sakta hoon?)"
+            selectedLanguage === "auto"
+              ? "Ask in any language (e.g. 'Will it rain in Noida?', 'क्या कल बारिश होगी?', 'Kal spray kar sakta hoon?')..."
+              : selectedLanguage === "hi-en"
+              ? "Hinglish me pucho (e.g. Kal pesticide spray kar sakta hoon?)..."
               : selectedLanguage === "hi"
               ? "हिंदी में पूछें (उदा. क्या कल बारिश होगी?)"
               : "Ask a natural-language weather question (e.g. Will it rain in Noida today?)"
