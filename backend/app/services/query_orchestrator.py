@@ -35,6 +35,7 @@ from app.services.groq_service import (
     DEFAULT_MODEL,
     MAX_TOKENS,
     TOOL_DEFINITIONS,
+    detect_language,
     get_groq_client,
     get_system_prompt,
 )
@@ -171,7 +172,7 @@ async def _execute_tool(
 # ---------------------------------------------------------------------------
 
 async def answer_weather_question(
-    user_message: str, language: str = "en"
+    user_message: str, language: str = "auto"
 ) -> ChatResponse:
     """
     Run the full agentic loop for a user weather question.
@@ -179,7 +180,7 @@ async def answer_weather_question(
     1. Sends the question to Groq with tool definitions and language-specific instructions.
     2. Executes any tool calls against real backend services.
     3. Feeds results back and repeats until Groq gives a final text answer.
-    4. Returns a ChatResponse with the answer, raw data, tool audit trail, and language.
+    4. Returns a ChatResponse with the answer, raw data, tool audit trail, and detected language.
 
     Raises OrchestratorError for non-recoverable failures (e.g. missing API key,
     Groq API error, loop exceeded).
@@ -250,12 +251,24 @@ async def answer_weather_question(
                 "Please check your question and try again."
             )
 
+        # Determine resolved language identifier
+        resolved_language = language
+        if (not language) or language.lower().strip() in ("auto", "detect", "auto-detect", "default"):
+            detected_from_ans = detect_language(final_answer)
+            detected_from_user = detect_language(user_message)
+            if detected_from_ans != "en":
+                resolved_language = detected_from_ans
+            elif detected_from_user != "en":
+                resolved_language = detected_from_user
+            else:
+                resolved_language = "en"
+
         return ChatResponse(
             answer=final_answer,
             data_used=data_used,
             tool_calls_made=tool_calls_made,
             model=response.model,
-            language=language,
+            language=resolved_language,
         )
 
 
