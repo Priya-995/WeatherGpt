@@ -5,7 +5,7 @@ import { ChatResponse, sendChat } from "@/lib/api";
 import ChatBubble from "@/components/ui/ChatBubble";
 import LiveIndicator from "@/components/ui/LiveIndicator";
 import { MessageItem } from "@/components/ui/ChatMessage";
-import { Bot, Send, Languages, HelpCircle, Loader2 } from "lucide-react";
+import { Bot, Send, Languages, HelpCircle, Loader2, Sparkles } from "lucide-react";
 
 const HINGLISH_KEYWORDS = [
   "kya", "kyu", "kyun", "kaise", "kaisa", "kaisi", "kab", "kahan", "kaha", "kidhar",
@@ -23,24 +23,6 @@ const HINGLISH_KEYWORDS = [
   "chhatri", "gaadi", "chalo", "jaana"
 ];
 
-const LANGUAGE_LABELS: Record<string, string> = {
-  "en": "English",
-  "hi": "हिंदी (Hindi)",
-  "hi-en": "Hinglish",
-  "bn": "বাংলা (Bengali)",
-  "ta": "தமிழ் (Tamil)",
-  "te": "తెలుగు (Telugu)",
-  "mr": "मराठी (Marathi)",
-  "gu": "ગુજરાતી (Gujarati)",
-  "pa": "ਪੰਜਾਬੀ (Punjabi)",
-  "kn": "ಕನ್ನಡ (Kannada)",
-  "ml": "മലയാളം (Malayalam)",
-  "ur": "اردو (Urdu)",
-  "es": "Español",
-  "fr": "Français",
-  "de": "Deutsch",
-};
-
 export default function ChatPage() {
   const [inputMessage, setInputMessage] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<"auto" | "en" | "hi" | "hi-en">("auto");
@@ -49,7 +31,7 @@ export default function ChatPage() {
       id: "welcome",
       role: "assistant",
       content:
-        "**Welcome to WeatherGPT AI Decision Support.**\n\nI am your grounded meteorological assistant. Ask me weather and agricultural timing questions in English, Hindi, or Hinglish — for example:\n- *\"Will it rain in Noida this evening?\"*\n- *\"Kal pesticide spray kar sakta hoon?\"*\n- *\"क्या बाड़मेर में लू की चेतावनी है?\"*",
+        "**Welcome to WeatherGPT AI Decision Support.**\n\nI am your grounded meteorological assistant with **automatic language detection**. Ask me weather and agricultural timing questions in English, Hindi, or Hinglish — for example:\n- *\"Will it rain in Noida this evening?\"*\n- *\"Kal pesticide spray kar sakta hoon?\"*\n- *\"क्या बाड़मेर में लू की चेतावनी है?\"*",
       model: "WeatherGPT Groq Intelligence Engine",
       language: "en",
     },
@@ -62,13 +44,32 @@ export default function ChatPage() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const detectLanguage = (text: string): "en" | "hi" | "hi-en" => {
-    const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani", "karo"];
-    const lower = text.toLowerCase();
+  // Client-side language detection helper
+  const detectLanguage = (text: string): string => {
+    const trimmed = text.trim();
+    if (!trimmed) return "en";
 
-    if (/[\u0900-\u097F]/.test(text)) return "hi";
-    if (hinglishKeywords.some((kw) => lower.includes(kw))) return "hi-en";
-    return selectedLanguage;
+    // 1. Script-based Unicode detection
+    if (/[\u0900-\u097F]/.test(trimmed)) return "hi"; // Devanagari (Hindi/Marathi)
+    if (/[\u0980-\u09FF]/.test(trimmed)) return "bn"; // Bengali
+    if (/[\u0B80-\u0BFF]/.test(trimmed)) return "ta"; // Tamil
+    if (/[\u0C00-\u0C7F]/.test(trimmed)) return "te"; // Telugu
+    if (/[\u0A80-\u0AFF]/.test(trimmed)) return "gu"; // Gujarati
+    if (/[\u0A00-\u0A7F]/.test(trimmed)) return "pa"; // Punjabi
+    if (/[\u0C80-\u0CFF]/.test(trimmed)) return "kn"; // Kannada
+    if (/[\u0D00-\u0D7F]/.test(trimmed)) return "ml"; // Malayalam
+    if (/[\u0600-\u06FF]/.test(trimmed)) return "ur"; // Urdu
+
+    // 2. Hinglish (Romanized Hindi) keyword & phrase detection
+    const lower = trimmed.toLowerCase();
+    const words = lower.match(/\b[a-z]+\b/g) || [];
+    const matchedHinglish = words.filter((w) => HINGLISH_KEYWORDS.includes(w));
+
+    if (matchedHinglish.length >= 1) {
+      return "hi-en";
+    }
+
+    return "en";
   };
 
   const handleSend = async (textToSend: string) => {
@@ -76,7 +77,11 @@ export default function ChatPage() {
     if (!userText || loading) return;
 
     setInputMessage("");
-    const effectiveLang = detectLanguage(userText);
+
+    // Determine effective language
+    const detected = detectLanguage(userText);
+    const langToSend = selectedLanguage === "auto" ? "auto" : selectedLanguage;
+    const userMsgLang = selectedLanguage === "auto" ? detected : selectedLanguage;
 
     const userMsg: MessageItem = {
       id: Date.now().toString(),
@@ -100,7 +105,7 @@ export default function ChatPage() {
         data_used: res.data_used,
         tool_calls_made: res.tool_calls_made,
         model: res.model,
-        language: res.language || (selectedLanguage === "auto" ? detected : selectedLanguage),
+        language: res.language || userMsgLang,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -108,7 +113,12 @@ export default function ChatPage() {
       const errorMsg: MessageItem = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "Unable to connect to weather decision support engine right now.",
+        content: userMsgLang === "hi"
+          ? "क्षमा करें, मौसम निर्णय सहायता इंजन से कनेक्ट करने में असमर्थ। कृपया कुछ क्षण बाद पुनः प्रयास करें।"
+          : userMsgLang === "hi-en"
+          ? "Sorry, abhi weather decision support engine se connect nahi ho pa raha hai. Kripya thodi der baad dobara try karein."
+          : "Unable to connect to weather decision support engine right now.",
+        language: userMsgLang,
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -122,10 +132,10 @@ export default function ChatPage() {
   };
 
   const promptShortcuts = [
-    { label: "Rain Forecast Noida", text: "Will it rain in Noida today?" },
-    { label: "Pesticide Spray Timing", text: "Kal pesticide spray kar sakta hoon?" },
-    { label: "Heat Wave Alert Check", text: "Is there a heatwave warning in Rajasthan?" },
-    { label: "Travel Safety Guide", text: "Are there thunderstorm alerts for Delhi road travel tonight?" },
+    { label: "🌦️ Rain Forecast", text: "Will it rain in Noida today?" },
+    { label: "🌾 Pesticide Spray", text: "Kal pesticide spray kar sakta hoon?" },
+    { label: "🌡️ हिंदी में पूछें", text: "क्या कल दिल्ली में बारिश होगी?" },
+    { label: "☀️ Heat Wave Check", text: "Is there a heatwave warning in Rajasthan?" },
   ];
 
   return (
@@ -142,16 +152,29 @@ export default function ChatPage() {
             </h1>
           </div>
           <p className="text-body-sm text-on-surface-variant">
-            Natural-language assistant grounded in real-time NWP telemetry & IMD bulletins.
+            Natural-language assistant grounded in real-time NWP telemetry & IMD bulletins with automatic language matching.
           </p>
         </div>
 
         <div className="flex items-center space-x-3 shrink-0">
           <LiveIndicator status="connected" />
 
-          {/* Language Selector (EN / HI / Hinglish) */}
+          {/* Language Selector (Auto / EN / Hinglish / HI) */}
           <div className="flex items-center space-x-1 bg-surface-container p-1 rounded-lg border border-outline-variant/40">
             <Languages className="w-3.5 h-3.5 text-on-surface-variant ml-1" />
+            <button
+              type="button"
+              onClick={() => setSelectedLanguage("auto")}
+              className={`px-2.5 py-1 text-xs rounded-md font-bold transition-all flex items-center gap-1 ${
+                selectedLanguage === "auto"
+                  ? "bg-primary text-on-primary shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+              title="Automatically detect user's language and respond in the same language"
+            >
+              <Sparkles className="w-3 h-3" />
+              Auto
+            </button>
             <button
               type="button"
               onClick={() => setSelectedLanguage("en")}
@@ -183,7 +206,7 @@ export default function ChatPage() {
                   : "text-on-surface-variant hover:text-on-surface"
               }`}
             >
-              HI
+              हिंदी
             </button>
           </div>
         </div>
@@ -216,7 +239,7 @@ export default function ChatPage() {
           <div className="flex justify-start">
             <div className="bg-surface-container-lowest text-on-surface-variant rounded-2xl rounded-tl-none p-4 text-body-sm flex items-center space-x-3 border border-surface-container-high shadow-sm">
               <Loader2 className="w-4 h-4 text-primary animate-spin" />
-              <span>Querying telemetry data sources & compiling grounded response...</span>
+              <span>Querying telemetry data sources & compiling grounded response in matching language...</span>
             </div>
           </div>
         )}
@@ -233,8 +256,8 @@ export default function ChatPage() {
               : selectedLanguage === "hi-en"
               ? "Hinglish me pucho (e.g. Kal pesticide spray kar sakta hoon?)..."
               : selectedLanguage === "hi"
-              ? "हिंदी में पूछें (उदा. क्या कल बारिश होगी?)"
-              : "Ask a natural-language weather question (e.g. Will it rain in Noida today?)"
+              ? "हिंदी में पूछें (उदा. क्या कल बारिश होगी?)..."
+              : "Ask a natural-language weather question (e.g. Will it rain in Noida today?)..."
           }
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
