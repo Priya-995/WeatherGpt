@@ -8,22 +8,39 @@ _client: Optional[httpx.AsyncClient] = None
 
 
 def get_http_client() -> httpx.AsyncClient:
-    if _client is None:
-        raise RuntimeError("HTTP client is not initialized")
+    global _client
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if _client is None or _client.is_closed or getattr(_client, "_loop", None) != current_loop:
+        _client = httpx.AsyncClient(
+            timeout=10.0,
+            headers={"User-Agent": "WeatherGPT/0.1 (college project)"}
+        )
+        setattr(_client, "_loop", current_loop)
     return _client
 
 
 async def init_http_client() -> None:
     global _client
-    _client = httpx.AsyncClient(
-        timeout=10.0,
-        headers={"User-Agent": "WeatherGPT/0.1 (college project)"}
-    )
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if _client is None or _client.is_closed or getattr(_client, "_loop", None) != current_loop:
+        _client = httpx.AsyncClient(
+            timeout=10.0,
+            headers={"User-Agent": "WeatherGPT/0.1 (college project)"}
+        )
+        setattr(_client, "_loop", current_loop)
 
 
 async def close_http_client() -> None:
     global _client
-    if _client is not None:
+    if _client is not None and not _client.is_closed:
         await _client.aclose()
         _client = None
 
