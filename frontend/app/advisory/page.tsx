@@ -5,12 +5,14 @@ import { RiskResult, getWeather, getRisk } from "@/lib/api";
 import AdvisoryTabCard from "@/components/ui/AdvisoryTabCard";
 import { ClipboardList, MapPin } from "lucide-react";
 
+// Persona Advisory Panel Page - WeatherGPT Early Warning System
 export default function AdvisoryPage() {
   const [selectedCoords, setSelectedCoords] = useState<{ name: string; lat: number; lon: number }>({
     name: "Delhi / NCR",
     lat: 28.61,
     lon: 77.21,
   });
+  const [activeTab, setActiveTab] = useState<"citizen" | "farmer" | "heat">("citizen");
   const [riskData, setRiskData] = useState<RiskResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -18,7 +20,7 @@ export default function AdvisoryPage() {
     async function loadData() {
       setLoading(true);
       try {
-        const rData = await getRisk(selectedCoords.lat, selectedCoords.lon);
+        const rData = await getRisk(selectedCoords.lat, selectedCoords.lon, activeTab);
         setRiskData(rData);
       } catch (err) {
         console.error("Error loading advisory telemetry:", err);
@@ -27,7 +29,7 @@ export default function AdvisoryPage() {
       }
     }
     loadData();
-  }, [selectedCoords]);
+  }, [selectedCoords, activeTab]);
 
   const presetLocations = [
     { name: "Delhi / NCR", lat: 28.61, lon: 77.21 },
@@ -73,7 +75,7 @@ export default function AdvisoryPage() {
         </div>
       </div>
 
-      {/* Main Stitch Advisory Tab Component */}
+      {/* Main Advisory Tab Component */}
       {loading ? (
         <div className="h-64 flex flex-col items-center justify-center bg-surface-container-low rounded-xl border border-surface-container-high space-y-3">
           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -82,7 +84,11 @@ export default function AdvisoryPage() {
           </span>
         </div>
       ) : (
-        <AdvisoryTabCard riskData={riskData} />
+        <AdvisoryTabCard
+          riskData={riskData}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       )}
     </div>
   );

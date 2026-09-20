@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, getAlertWebSocketUrl, getAlerts } from "@/lib/api";
+import { Alert, LocationItem, getAlertWebSocketUrl, getAlerts } from "@/lib/api";
 import AlertCard from "@/components/ui/AlertCard";
 import LiveIndicator from "@/components/ui/LiveIndicator";
+import LocationSearch from "@/components/ui/LocationSearch";
 import { normalizeSeverity } from "@/components/ui/SeverityBadge";
 import {
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   MapPin,
   CheckCircle2,
   BellRing,
+  Globe2,
 } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -27,20 +29,53 @@ export default function AlertsPage() {
   const [activeSeverity, setActiveSeverity] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "severity">("severity");
 
+  // "all-india"  -> unfiltered feed (today's default behaviour, unchanged)
+  // "district"   -> filtered to whatever location is picked below
+  const [scope, setScope] = useState<"all-india" | "district">("all-india");
+  const [selectedLocation, setSelectedLocation] = useState<LocationItem>({
+    name: "New Delhi",
+    latitude: 28.6139,
+    longitude: 77.209,
+    country: "India",
+    admin1: "Delhi",
+  });
+
   const fetchAlertsData = async () => {
+    // Clear any previous error before each fresh fetch so stale messages don't
+    // linger after the backend recovers.
+    setError(null);
     try {
-      const res = await getAlerts();
+      const res =
+        scope === "district"
+          ? await getAlerts(selectedLocation.latitude, selectedLocation.longitude)
+          : await getAlerts();
+      // getAlerts() never throws — it returns {active_count:0, alerts:[]} when
+      // the backend is unreachable. Treat a non-zero active_count with an empty
+      // alerts array as a parse anomaly (shouldn't happen), otherwise trust it.
       setAlerts(res.alerts || []);
-    } catch {
+    } catch (err) {
+      // This branch only fires for truly unexpected errors (e.g. import-time
+      // crashes, not network failures, which getAlerts() handles internally).
+      console.error("Unexpected error in fetchAlertsData:", err);
       setError("Unable to retrieve active weather warnings.");
     } finally {
       setLoading(false);
     }
   };
 
+  // Re-fetch whenever the scope toggle or the picked location changes,
+  // in addition to on first load.
   useEffect(() => {
+    setLoading(true);
     fetchAlertsData();
-  }, []);
+
+    // Backup polling: the WebSocket below is the primary live-update path,
+    // but if it silently disconnects (wsStatus -> "disconnected") nothing
+    // previously re-subscribed, so the page could sit stale indefinitely.
+    // This refetch every 90s is a safety net, independent of socket state.
+    const pollId = setInterval(fetchAlertsData, 90_000);
+    return () => clearInterval(pollId);
+  }, [scope, selectedLocation]);
 
   const handleRefreshFeed = async () => {
     setRefreshing(true);
@@ -69,10 +104,12 @@ export default function AlertsPage() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.event === "new_alert" && data.alert) {
+          if (data.event === "connected" && Array.isArray(data.active_alerts) && data.active_alerts.length > 0) {
+            setAlerts((prev) => (prev.length === 0 ? data.active_alerts : prev));
+          } else if (data.event === "new_alert" && data.alert) {
             const newAlert: Alert = data.alert;
             setAlerts((prev) => [newAlert, ...prev.filter((a) => a.id !== newAlert.id)]);
-            setLiveNotification(`New Warning Issued for ${newAlert.affected_location}`);
+            setLiveNotification(`New Warning Issued for ${newAlert.affected_location || 'Emergency Area'}`);
             setTimeout(() => setLiveNotification(null), 6000);
           }
         } catch {
@@ -148,6 +185,50 @@ export default function AlertsPage() {
         </div>
       )}
 
+      {/* Scope Toggle: All India vs My District */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-surface-container-low p-4 rounded-xl border border-surface-container-high">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-label-caps text-on-surface-variant font-bold flex items-center gap-1">
+            <Globe2 className="w-3.5 h-3.5" /> View:
+          </span>
+          {(["all-india", "district"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setScope(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${
+                scope === s
+                  ? "bg-primary text-on-primary shadow-sm"
+                  : "bg-surface-container-lowest text-on-surface-variant hover:text-on-surface border border-outline-variant/30"
+              }`}
+            >
+              {s === "all-india" ? "All India" : "My District"}
+            </button>
+          ))}
+        </div>
+
+        {/* Location picker only shown in district mode — reuses the same
+            LocationSearch + LocationItem pattern the Dashboard page already
+            uses, so alerts fetched here go through the same backend
+            lat/lon filtering path as getAlerts() elsewhere in the app. */}
+        {scope === "district" && (
+          <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-on-surface bg-surface-container-lowest px-2.5 py-1.5 rounded-lg border border-outline-variant/40 shrink-0">
+              <MapPin className="w-3.5 h-3.5 text-primary" />
+              <span>
+                {selectedLocation.name}
+                {selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""}
+              </span>
+            </div>
+            <LocationSearch
+              selectedLocation={selectedLocation}
+              onSelectLocation={setSelectedLocation}
+              className="sm:max-w-xs"
+            />
+          </div>
+        )}
+      </div>
+
       {/* Filter Bar & Sort Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-surface-container-high">
         <div className="flex flex-wrap items-center gap-2">
@@ -191,17 +272,38 @@ export default function AlertsPage() {
           {loading ? (
             <div className="h-64 flex flex-col items-center justify-center bg-surface-container-low rounded-xl border border-surface-container-high space-y-3 text-on-surface-variant text-body-sm">
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span>Fetching live IMD emergency alerts...</span>
+              <span>
+                {scope === "district"
+                  ? `Fetching alerts for ${selectedLocation.name}...`
+                  : "Fetching live IMD emergency alerts..."}
+              </span>
             </div>
           ) : error ? (
-            <div className="p-4 bg-error-container text-on-error-container rounded-xl text-body-sm">
-              {error}
+            <div className="p-6 bg-warning-container/40 text-on-surface rounded-xl border border-warning/40 text-body-sm space-y-2">
+              <div className="flex items-center gap-2 font-bold text-warning">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Live Feed Temporarily Unavailable</span>
+              </div>
+              <p className="text-on-surface-variant text-xs">{error}</p>
+              <p className="text-xs text-outline">
+                The IMD CAP feed could not be reached. No warnings are being shown because we
+                will not display fabricated data — check back shortly or use the Refresh button.
+              </p>
             </div>
           ) : sortedAlerts.length === 0 ? (
             <div className="p-12 text-center bg-surface-container-lowest rounded-xl border border-surface-container-high text-on-surface-variant text-body-sm space-y-2">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-              <div className="font-bold text-on-surface">No active warnings match filter</div>
-              <p className="text-xs text-outline">All atmospheric risk levels in selected filter are nominal.</p>
+              <div className="font-bold text-on-surface">
+                {scope === "district"
+                  ? `No active warnings for ${selectedLocation.name}${
+                      selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""
+                    }`
+                  : "No active IMD warnings at this time"}
+              </div>
+              <p className="text-xs text-outline">
+                The live IMD feed returned zero active alerts — either conditions are nominal
+                or the feed is momentarily quiet. If you expected warnings, try refreshing.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -211,13 +211,7 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "name": "get_risk",
             "description": (
                 "Compute a deterministic risk score and rule-based advisories for "
-                "a location. Call this when the user asks about safety, risk level, "
-                "travel advisories, farming recommendations (spraying, irrigation, "
-                "harvest), or heat/health precautions. "
-                "Returns: composite risk score (0–1), risk level (Low/Moderate/High/Critical), "
-                "plain-English reasons, and active advisory messages for citizen, "
-                "farmer, and heat contexts. "
-                "Always call search_location + get_weather first, then call this."
+                "a location. Call this when the user asks about overall risk level or score."
             ),
             "parameters": {
                 "type": "object",
@@ -235,6 +229,40 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_grounded_advisory",
+            "description": (
+                "Retrieve RAG-grounded safety advisories and official government SOP directives "
+                "(IMD Agromet, NDMA Heat Wave, MoHFW Health, CWC Floods) for a location. "
+                "Call this whenever the user asks for precautions, safety guidance, "
+                "action directives ('what should I do', 'is it safe to...', 'can I spray', 'outside walk'). "
+                "Specify location, hazard ('heavy_rain', 'heatwave', 'flood', 'cyclone', 'general'), "
+                "and persona ('farmer', 'citizen', 'health', 'all')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City or location name (e.g. 'Agra, India', 'Barmer', 'Puri')",
+                    },
+                    "hazard": {
+                        "type": "string",
+                        "enum": ["heavy_rain", "heatwave", "flood", "cyclone", "general"],
+                        "description": "The type of weather hazard inferred from the query context",
+                    },
+                    "persona": {
+                        "type": "string",
+                        "enum": ["farmer", "citizen", "health", "all"],
+                        "description": "Target audience persona inferred from query context",
+                    },
+                },
+                "required": ["location"],
+            },
+        },
+    },
 ]
 
 
@@ -245,34 +273,34 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
 SYSTEM_PROMPT = """You are WeatherGPT, an AI-powered weather intelligence assistant.
 
 CRITICAL RULES — you must follow these without exception:
-1. You MUST call the provided tools to get real weather data before answering.
+1. You MUST call the provided tools to get real weather data and grounded advisories before answering.
 2. You MUST NEVER invent, estimate, or hallucinate weather numbers (temperature,
    precipitation, wind speed, humidity, etc.). Every number you state must come
    directly from a tool result.
-3. Always call search_location first when a place name is mentioned, then call
-   get_weather with the returned coordinates.
-4. If a location cannot be found, say so clearly and ask the user to clarify.
-5. If the weather data does not cover the requested time window, say so honestly.
-6. When the user asks about risk, safety, travel advisories, farming actions
-   (spraying, irrigation, harvest), or heat precautions — call get_risk after
-   get_weather to get the deterministic risk score and rule-based advisory text.
-   Quote the advisory message directly; it is already human-readable.
+3. Always call search_location first when a place name is mentioned for get_weather/get_risk.
+4. When the user asks a precaution, safety, action, or 'is it safe to...' question — you MUST call get_grounded_advisory(location, hazard, persona).
+   - Infer persona ('farmer', 'citizen', 'health') and hazard ('heavy_rain', 'heatwave', 'flood', 'cyclone', 'general') from the user query.
+   - For farmer spraying/irrigation questions: persona='farmer', hazard='heavy_rain'.
+   - For heat/outdoor walking in hot areas: persona='citizen' or 'health', hazard='heatwave'.
+   - For flood warnings/evacuation: persona='citizen', hazard='flood'.
+5. SOURCING & CITATION REQUIREMENT:
+   - In your answer text, ALWAYS cite the official government source(s) (e.g. 'Based on IMD Agromet Advisory Services...', 'Per NDMA Heat Wave Safety Guidelines...', 'According to MoHFW Health Directives...').
+   - Quote the recommended action and exact reasoning from the grounded advisory tool result.
+6. HINDI & HINGLISH SUPPORT:
+   - If the user asks in Hindi or Hinglish, translate/adapt the recommended action and why bullets into natural Hindi/Hinglish.
+   - KEEP OFFICIAL ORGANIZATION NAMES (IMD, NDMA, MoHFW, NCDC) IN LATIN SCRIPT (e.g., 'IMD ke according...', 'NDMA guidelines ke mutabiq...').
 
 INTENT CATEGORIES you handle:
   - current_weather   : real-time conditions at a location
   - forecast          : upcoming hours or days outlook
   - rain_query        : precipitation probability and amounts
-  - travel_advisory   : safety/travel guidance — use get_risk
-  - farmer_advisory   : spraying/irrigation/harvest guidance — use get_risk
-  - heat_advisory     : hydration/heat precautions — use get_risk
+  - travel_advisory   : safety/travel guidance — use get_grounded_advisory
+  - farmer_advisory   : spraying/irrigation/harvest guidance — use get_grounded_advisory
+  - heat_advisory     : hydration/heat precautions — use get_grounded_advisory
 
 ANSWER STYLE:
-- Be concise, friendly, and specific. Quote exact figures from the tool data.
-- Mention the data source (Open-Meteo) when relevant for credibility.
-- Use local time (the API returns local timestamps automatically).
-- For rain queries, always state the precipitation probability percentage AND
-  the expected amount in mm, not just a vague "yes/no".
-- For advisory queries, quote the advisory title and message from get_risk results.
+- Be concise, authoritative, friendly, and specific. Quote exact figures from the tool data.
+- Always explicitly cite IMD, NDMA, or MoHFW in prose when giving safety/action advice.
 """
 
 

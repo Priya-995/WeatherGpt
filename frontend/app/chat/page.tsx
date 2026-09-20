@@ -62,13 +62,13 @@ export default function ChatPage() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const detectLanguage = (text: string): "en" | "hi" | "hi-en" => {
+  const detectLanguage = (text: string): string => {
     const hinglishKeywords = ["kal", "kya", "kar", "hoon", "hai", "kaise", "sakta", "spray", "barish", "mausam", "kahan", "paani", "karo"];
     const lower = text.toLowerCase();
 
     if (/[\u0900-\u097F]/.test(text)) return "hi";
     if (hinglishKeywords.some((kw) => lower.includes(kw))) return "hi-en";
-    return selectedLanguage;
+    return selectedLanguage === "auto" ? "en" : selectedLanguage;
   };
 
   const handleSend = async (textToSend: string) => {
@@ -82,14 +82,14 @@ export default function ChatPage() {
       id: Date.now().toString(),
       role: "user",
       content: userText,
-      language: userMsgLang,
+      language: effectiveLang,
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const res: ChatResponse = await sendChat(userText, sessionId, langToSend);
+      const res: ChatResponse = await sendChat(userText, sessionId, selectedLanguage);
 
       if (res.session_id) setSessionId(res.session_id);
 
@@ -99,8 +99,9 @@ export default function ChatPage() {
         content: res.answer,
         data_used: res.data_used,
         tool_calls_made: res.tool_calls_made,
+        sources: (res as any).sources,
         model: res.model,
-        language: res.language || (selectedLanguage === "auto" ? detected : selectedLanguage),
+        language: res.language || effectiveLang,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);

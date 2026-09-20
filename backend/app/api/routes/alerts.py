@@ -70,6 +70,7 @@ async def refresh_alerts_endpoint() -> AlertStoreResponse:
     """
     Re-fetch live IMD alerts feed and broadcast updates.
     """
+    logger.info("=== /api/alerts/refresh endpoint hit ===")
     alerts = fetch_and_store_alerts()
     if alerts:
         from app.api.routes.websocket import broadcast_alert

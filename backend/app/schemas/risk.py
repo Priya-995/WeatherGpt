@@ -8,6 +8,7 @@ from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
+from app.schemas.rag import GroundedAdvisory
 
 
 class RiskLevel(str, Enum):
@@ -56,6 +57,10 @@ class AdvisoryItem(BaseModel):
     triggered_by: List[str] = Field(
         ..., description="Which weather conditions triggered this rule"
     )
+    grounded: Optional[GroundedAdvisory] = Field(
+        None, description="Optional LLM-generated RAG grounded advisory details"
+    )
+
 
 
 class AdvisoryResult(BaseModel):

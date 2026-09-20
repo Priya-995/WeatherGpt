@@ -74,6 +74,10 @@ class ChatResponse(BaseModel):
         "en",
         description="Language identifier used for the generated response.",
     )
+    sources: Optional[List[Dict[str, Any]]] = Field(
+        default_factory=list,
+        description="Array of grounded official source documents used for citations.",
+    )
 
 
 

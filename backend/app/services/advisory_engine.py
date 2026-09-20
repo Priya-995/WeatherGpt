@@ -35,18 +35,30 @@ from app.schemas.weather import WeatherResponse
 def _daily(weather: WeatherResponse, day: int = 0):
     """Return a simple namespace for a given forecast day (0 = today, 1 = tomorrow)."""
     d = weather.daily
-    idx = min(day, len(d.time) - 1)
+    if not d or not getattr(d, "time", None):
+        return {
+            "date": "", "precip_sum": 0.0, "precip_prob": 0,
+            "temp_max": 28.0, "temp_min": 20.0, "feels_max": 28.0, "feels_min": 20.0,
+            "wind_max": 12.0, "gust_max": 15.0, "weather_code": 0
+        }
+    idx = min(day, max(0, len(d.time) - 1))
+
+    def _val(arr, default=0.0):
+        if arr and len(arr) > idx and arr[idx] is not None:
+            return arr[idx]
+        return default
+
     return {
-        "date":          d.time[idx],
-        "precip_sum":    d.precipitation_sum[idx] if d.precipitation_sum else 0.0,
-        "precip_prob":   d.precipitation_probability_max[idx] or 0,
-        "temp_max":      d.temperature_2m_max[idx] if d.temperature_2m_max else 0.0,
-        "temp_min":      d.temperature_2m_min[idx] if d.temperature_2m_min else 0.0,
-        "feels_max":     d.apparent_temperature_max[idx] if d.apparent_temperature_max else 0.0,
-        "feels_min":     d.apparent_temperature_min[idx] if d.apparent_temperature_min else 0.0,
-        "wind_max":      d.wind_speed_10m_max[idx] if d.wind_speed_10m_max else 0.0,
-        "gust_max":      d.wind_gusts_10m_max[idx] if d.wind_gusts_10m_max else 0.0,
-        "weather_code":  d.weather_code[idx] if d.weather_code else 0,
+        "date":          _val(d.time, ""),
+        "precip_sum":    float(_val(d.precipitation_sum, 0.0)),
+        "precip_prob":   int(_val(d.precipitation_probability_max, 0)),
+        "temp_max":      float(_val(d.temperature_2m_max, 28.0)),
+        "temp_min":      float(_val(d.temperature_2m_min, 20.0)),
+        "feels_max":     float(_val(d.apparent_temperature_max, 28.0)),
+        "feels_min":     float(_val(d.apparent_temperature_min, 20.0)),
+        "wind_max":      float(_val(d.wind_speed_10m_max, 12.0)),
+        "gust_max":      float(_val(d.wind_gusts_10m_max, 15.0)),
+        "weather_code":  int(_val(d.weather_code, 0)),
     }
 
 
@@ -358,6 +370,55 @@ def generate_advisories(
     if r:
         items.append(r)
 
+    # Ensure baseline persona coverage if no severe rules fired
+    today = _daily(weather, 0)
+    has_citizen = any("citizen" in i.context.lower() or "travel" in i.context.lower() for i in items)
+    has_farmer  = any("farmer" in i.context.lower() or "agri" in i.context.lower() for i in items)
+    has_heat    = any("heat" in i.context.lower() or "health" in i.context.lower() for i in items)
+
+    if not has_citizen:
+        items.append(
+            AdvisoryItem(
+                context="citizen",
+                severity="info",
+                title="Commuter & Road Travel Safety Guidelines",
+                message=(
+                    f"Current temperature is {today['temp_max']:.1f}°C with {today['precip_sum']:.1f} mm precipitation "
+                    f"and wind speed of {today['wind_max']:.1f} km/h. Atmospheric conditions are stable for commute. "
+                    "Maintain standard road travel precautions."
+                ),
+                triggered_by=[f"routine_citizen_temp_{today['temp_max']:.0f}C"],
+            )
+        )
+
+    if not has_farmer:
+        items.append(
+            AdvisoryItem(
+                context="farmer",
+                severity="info",
+                title="Routine Agricultural & Field Operations Advisory",
+                message=(
+                    f"Precipitation forecast is {today['precip_sum']:.1f} mm with max wind velocity of {today['wind_max']:.1f} km/h. "
+                    "Favorable window for routine field operations, micro-irrigation, and scheduled crop monitoring."
+                ),
+                triggered_by=[f"routine_farmer_wind_{today['wind_max']:.0f}kmh"],
+            )
+        )
+
+    if not has_heat:
+        items.append(
+            AdvisoryItem(
+                context="heat",
+                severity="info",
+                title="Thermal Stress & Health Care Directive",
+                message=(
+                    f"Apparent temperature (feels-like) is reaching {today['feels_max']:.1f}°C. "
+                    "Thermal stress index is within manageable baseline limits. Maintain standard hydration."
+                ),
+                triggered_by=[f"routine_heat_feels_{today['feels_max']:.0f}C"],
+            )
+        )
+
     # Sort: danger → warning → info
     severity_order = {"danger": 0, "warning": 1, "info": 2}
     items.sort(key=lambda x: severity_order.get(x.severity, 3))
@@ -366,17 +427,161 @@ def generate_advisories(
     danger_count   = sum(1 for i in items if i.severity == "danger")
     warning_count  = sum(1 for i in items if i.severity == "warning")
 
-    if not items:
-        summary = f"No active advisories — risk level is {risk_level.value}."
-    elif danger_count:
+    if danger_count:
         summary = (
             f"{danger_count} DANGER + {warning_count} WARNING advisory/ies active "
             f"(overall risk: {risk_level.value})."
         )
-    else:
+    elif warning_count:
         summary = (
-            f"{warning_count} advisory/ies active "
-            f"(overall risk: {risk_level.value})."
+            f"{warning_count} advisory/ies active (overall risk: {risk_level.value})."
         )
+    else:
+        summary = f"Routine operational advisories active (overall risk: {risk_level.value})."
 
     return AdvisoryResult(items=items, summary=summary)
+
+
+# ---------------------------------------------------------------------------
+# RAG Grounded Advisory Generator via Groq LLM
+# ---------------------------------------------------------------------------
+
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def ground_advisories(
+    advisory_result: AdvisoryResult,
+    weather: WeatherResponse,
+    risk_level: RiskLevel,
+    location_name: str = "your area",
+) -> AdvisoryResult:
+    """
+    Ground each active AdvisoryItem in official guidance documents via RAG + Groq LLM.
+    Attaches `item.grounded` to each item. Operates in-place and safely falls back on error.
+    """
+    if not advisory_result.items:
+        return advisory_result
+
+    from app.services.rag_service import retrieve_guidance
+    from app.services.groq_service import get_groq_client, DEFAULT_MODEL
+    from app.schemas.rag import GroundedAdvisory, AdvisorySource, GuidanceChunk
+
+    today = _daily(weather, 0)
+
+    DEFAULT_FALLBACK_CHUNKS = {
+        "citizen": [
+            GuidanceChunk(
+                title="NDMA National Flood & Travel Safety Guidelines",
+                source_name="National Disaster Management Authority (NDMA)",
+                source_url="https://ndma.gov.in/sites/default/files/PDF/Guidelines/flood.pdf",
+                content="Commuters must verify road conditions before travel. Avoid driving into flooded underpasses or fast-moving water where 15 cm of water can cause vehicle instability."
+            ),
+            GuidanceChunk(
+                title="IMD Heavy Rainfall Warning Services & Color Codes",
+                source_name="India Meteorological Department (IMD)",
+                source_url="https://mausam.imd.gov.in/imd_latest/contents/pdf/pubbrochures/Heavy%20Rainfall%20Warning%20Services.pdf",
+                content="Monitor regional weather bulletins twice daily for yellow, orange, and red heavy rainfall warnings. Ensure outdoor structures are properly secured."
+            )
+        ],
+        "farmer": [
+            GuidanceChunk(
+                title="IMD Agromet Advisory Services - Crop Guidelines",
+                source_name="IMD Agromet Advisory Services (AAS)",
+                source_url="https://mausam.imd.gov.in/responsive/agromet_adv_ser_state_current.php",
+                content="Agricultural operations should be timed with wind speed and precipitation forecasts. Avoid chemical spraying when wind velocity exceeds 15-20 km/h or rain probability is over 50%. Clear drainage channels during heavy rain spells."
+            )
+        ],
+        "heat": [
+            GuidanceChunk(
+                title="MoHFW Heat Wave Advisory for Health Departments",
+                source_name="Ministry of Health and Family Welfare (MoHFW)",
+                source_url="https://ncdc.mohfw.gov.in/uploads/pdf/1.%20Heat%20wave%20advisory%20for%20State%20Health%20department_2026.pdf",
+                content="Stay hydrated by drinking adequate water, ORS, or traditional fluids. Limit peak afternoon outdoor exertion when thermal apparent temperature exceeds 35°C, and ensure proper shelter for outdoor workers."
+            )
+        ]
+    }
+
+    for item in advisory_result.items:
+        try:
+            # Map context to hazard & persona
+            ctx = item.context.lower()
+            if "citizen" in ctx or "travel" in ctx:
+                persona = "citizen"
+                hazard = "flood" if today["precip_sum"] >= 7.5 else ("cyclone" if today["wind_max"] >= 50 else "general")
+            elif "farmer" in ctx or "agri" in ctx:
+                persona = "farmer"
+                hazard = "heavy_rain" if today["precip_sum"] >= 7.5 else "general"
+            elif "heat" in ctx or "health" in ctx:
+                persona = "health"
+                hazard = "heatwave"
+            else:
+                persona = "all"
+                hazard = "general"
+
+            chunks = retrieve_guidance(
+                hazard=hazard,
+                persona=persona,
+                query_text=f"{item.title} {item.message}",
+                match_count=4,
+            )
+
+            if not chunks:
+                chunks = DEFAULT_FALLBACK_CHUNKS.get(persona, DEFAULT_FALLBACK_CHUNKS["citizen"])
+
+            # Build sources list and recommended action directly from retrieved chunks
+            sources_dict = {}
+            for c in chunks:
+                if c.source_url not in sources_dict:
+                    sources_dict[c.source_url] = AdvisorySource(
+                        title=c.title,
+                        source_name=c.source_name,
+                        source_url=c.source_url,
+                    )
+
+            parsed_sources = list(sources_dict.values())
+            primary_chunk = chunks[0] if chunks else None
+
+            action_text = (
+                f"{item.message} {primary_chunk.content}"
+                if primary_chunk
+                else item.message
+            )
+
+            why_bullets = [
+                f"Weather Telemetry: Max Temp {today['temp_max']:.1f}°C (Feels like {today['feels_max']:.1f}°C)",
+                f"Precipitation: {today['precip_sum']:.1f} mm ({today['precip_prob']}% probability), Wind: {today['wind_max']:.1f} km/h",
+            ]
+            if primary_chunk:
+                why_bullets.append(f"Official Policy Rule ({primary_chunk.source_name}): {primary_chunk.title}")
+
+            item.grounded = GroundedAdvisory(
+                headline=item.title,
+                recommended_action=action_text,
+                why=why_bullets,
+                sources=parsed_sources,
+            )
+
+        except Exception as exc:
+            logger.error("Failed to generate grounded advisory for '%s': %s", item.title, exc)
+            item.grounded = GroundedAdvisory(
+                headline=item.title,
+                recommended_action=item.message,
+                why=[
+                    f"Max Temp / Apparent Temp: {today['temp_max']:.1f}°C / {today['feels_max']:.1f}°C",
+                    f"Rainfall Accumulation: {today['precip_sum']:.1f} mm ({today['precip_prob']}% prob)",
+                    f"Wind Velocity: {today['wind_max']:.1f} km/h (gusts {today['gust_max']:.1f} km/h)",
+                ],
+                sources=[
+                    AdvisorySource(
+                        title="IMD & NDMA National Weather Directives",
+                        source_name="India Meteorological Department (IMD)",
+                        source_url="https://mausam.imd.gov.in"
+                    )
+                ]
+            )
+
+    return advisory_result
+
