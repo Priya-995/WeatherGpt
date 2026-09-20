@@ -1,7 +1,9 @@
 /**
  * Shared API Client for WeatherGPT Frontend.
- * Interacts with Python FastAPI backend with intelligent client-side fallbacks
- * to ensure 100% uptime even if the hosted backend returns 502 Bad Gateway or spins down.
+ * Interacts with Python FastAPI backend.
+ * Weather and risk endpoints have client-side fallbacks; alert data does not —
+ * if the backend is unreachable, an empty alert list is returned rather than
+ * fabricating warnings that were never issued by IMD.
  */
 
 const getApiBaseUrl = () => {
@@ -108,12 +110,27 @@ export interface ChatResponse {
   language?: string;
 }
 
+export interface AdvisorySource {
+  title: string;
+  source_name: string;
+  source_url: string;
+}
+
+export interface GroundedAdvisory {
+  headline: string;
+  recommended_action: string;
+  why: string[];
+  sources: AdvisorySource[];
+}
+
 export interface AdvisoryItem {
   category: string;
   use_case: string;
+  context?: string;
   title: string;
   description: string;
   priority: string;
+  grounded?: GroundedAdvisory;
 }
 
 export interface AdvisorySet {
@@ -455,52 +472,14 @@ export async function getAlerts(lat?: number, lon?: number): Promise<AlertStoreR
     if (res.ok) {
       return await res.json();
     }
+    console.warn(`Backend /api/alerts returned HTTP ${res.status}. Returning empty alert list.`);
   } catch (err) {
-    console.warn("Backend /api/alerts unreachable:", err);
+    console.warn("Backend /api/alerts unreachable. Returning empty alert list:", err);
   }
 
-  // Live client-side fallback alerts
-  const now = new Date();
-  const exp = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-  return {
-    active_count: 3,
-    alerts: [
-      {
-        id: "FB-IMD-001",
-        alert_type: "heavy_rain",
-        severity: "severe",
-        affected_location: "Odisha (Puri, Cuttack, Bhubaneswar)",
-        issue_time: now.toISOString(),
-        expiry_time: exp.toISOString(),
-        source: "IMD Live",
-        instructions: "Heavy to very heavy rainfall expected. Avoid low-lying coastal areas.",
-        is_mock: false,
-      },
-      {
-        id: "FB-IMD-002",
-        alert_type: "heat_wave",
-        severity: "severe",
-        affected_location: "East Rajasthan (Barmer, Jaisalmer)",
-        issue_time: now.toISOString(),
-        expiry_time: exp.toISOString(),
-        source: "IMD Live",
-        instructions: "Severe heat wave conditions. Maximum temperatures likely to exceed 45°C.",
-        is_mock: false,
-      },
-      {
-        id: "FB-IMD-003",
-        alert_type: "thunderstorm",
-        severity: "moderate",
-        affected_location: "Delhi / NCR & Western UP",
-        issue_time: now.toISOString(),
-        expiry_time: exp.toISOString(),
-        source: "IMD Live",
-        instructions: "Thunderstorm with lightning and gusty winds. Stay indoors during rain.",
-        is_mock: false,
-      },
-    ],
-  };
+  // Do NOT return fabricated alert data — an empty list is the honest answer
+  // when the live IMD feed cannot be reached.
+  return { active_count: 0, alerts: [] };
 }
 
 export async function sendChat(message: string, sessionId?: string, language: string = "auto"): Promise<ChatResponse> {
@@ -555,9 +534,13 @@ export async function sendChat(message: string, sessionId?: string, language: st
   };
 }
 
-export async function getRisk(lat: number, lon: number): Promise<RiskResult> {
+export async function getRisk(lat: number, lon: number, persona?: string): Promise<RiskResult> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/risk?lat=${lat}&lon=${lon}`);
+    let url = `${API_BASE_URL}/api/risk?lat=${lat}&lon=${lon}`;
+    if (persona) {
+      url += `&persona=${encodeURIComponent(persona)}`;
+    }
+    const res = await fetch(url);
     if (res.ok) {
       return await res.json();
     }

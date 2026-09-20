@@ -4,6 +4,15 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads backend/.env in development; no-op in production
 
+# Configure logging so INFO-level messages from the app modules are visible.
+# (Python's root logger defaults to WARNING; without this all logger.info() calls
+# in alert_service.py etc. are silently swallowed.)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

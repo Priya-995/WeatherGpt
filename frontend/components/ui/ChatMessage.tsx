@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Bot, User, Database, Search, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
+import { Bot, User, Database, Search, ChevronDown, ChevronUp, CheckCircle2, ExternalLink, BookOpen } from "lucide-react";
 
 export interface MessageItem {
   id: string;
@@ -10,6 +10,7 @@ export interface MessageItem {
   content: string;
   data_used?: Record<string, any>;
   tool_calls_made?: any[];
+  sources?: Array<{ title: string; source_name: string; source_url: string }>;
   model?: string;
   language?: string;
 }
@@ -27,6 +28,11 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     if (lang === "hi") return "Hindi (हिंदी)";
     return "English";
   };
+
+  const sources =
+    message.sources && message.sources.length > 0
+      ? message.sources
+      : message.data_used?.get_grounded_advisory?.sources || [];
 
   return (
     <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} space-y-1.5`}>
@@ -65,6 +71,38 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         <div className="prose prose-invert prose-sm max-w-none text-slate-100 leading-relaxed font-sans">
           <ReactMarkdown>{message.content}</ReactMarkdown>
         </div>
+
+        {/* Rich Official Sources Cards */}
+        {!isUser && sources.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
+            <div className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+              <span>OFFICIAL GOVERNMENT SOURCES CITED</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {sources.map((src: any, idx: number) => (
+                <div
+                  key={idx}
+                  className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="truncate space-y-0.5">
+                    <div className="font-bold text-slate-200 truncate">{src.title}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{src.source_name}</div>
+                  </div>
+                  <a
+                    href={src.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-400 hover:underline shrink-0 bg-slate-900 px-2 py-1 rounded border border-slate-800"
+                  >
+                    <span>View</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer info: Grounding tag / language */}
         {!isUser && (

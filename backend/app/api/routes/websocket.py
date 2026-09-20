@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Set
+from typing import Any, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -95,15 +95,25 @@ manager = ConnectionManager()
 # Public helper — called by alerts.py router after ingesting a new alert
 # ---------------------------------------------------------------------------
 
-async def broadcast_alert(alert: Alert) -> None:
+async def broadcast_alert(alert: Any) -> None:
     """Broadcast a new alert to all connected /ws/alerts subscribers."""
+    if hasattr(alert, "model_dump"):
+        alert_payload = alert.model_dump(mode="json")
+        alert_id = getattr(alert, "id", "NEW-ALERT")
+    elif isinstance(alert, dict):
+        alert_payload = alert
+        alert_id = alert.get("id", alert.get("type", "NEW-ALERT"))
+    else:
+        alert_payload = str(alert)
+        alert_id = "NEW-ALERT"
+
     payload = {
         "event": "new_alert",
-        "alert": alert.model_dump(mode="json"),
+        "alert": alert_payload,
     }
     await manager.broadcast(payload)
     logger.info(
-        "Alert %s broadcast to %d WS client(s)", alert.id, manager.client_count
+        "Alert %s broadcast to %d WS client(s)", alert_id, manager.client_count
     )
 
 
@@ -121,11 +131,19 @@ async def alerts_websocket(ws: WebSocket) -> None:
     """
     await manager.connect(ws)
 
-    # Send immediate handshake
+    from app.services.alert_service import get_active_alerts
+    try:
+        active_list = [a.model_dump(mode="json") for a in get_active_alerts()]
+    except Exception as exc:
+        logger.warning("Failed to serialize active alerts for WS handshake: %s", exc)
+        active_list = []
+
+    # Send immediate handshake with active alerts state
     await ws.send_json({
         "event": "connected",
         "message": "Subscribed to WeatherGPT alert stream.",
         "connected_clients": manager.client_count,
+        "active_alerts": active_list,
     })
 
     try:

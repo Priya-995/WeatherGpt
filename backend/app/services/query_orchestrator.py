@@ -146,6 +146,104 @@ async def _execute_tool(
             )
             data_used["get_risk"] = result_payload
 
+        elif tool_name == "get_grounded_advisory":
+            loc_query: str = arguments["location"]
+            hazard: str = arguments.get("hazard", "general")
+            persona: str = arguments.get("persona", "citizen")
+
+            locations = await geocode(loc_query)
+            if not locations:
+                result_payload = {"error": f"Could not find coordinates for location '{loc_query}'."}
+                summary = f"Geocoding failed for '{loc_query}'"
+            else:
+                top = locations[0]
+                lat, lon = top.latitude, top.longitude
+                forecast = await get_forecast(lat, lon)
+
+                from app.services.alert_service import get_alert_data_for_risk_engine
+                from app.services.advisory_engine import ground_advisories
+
+                alert_data = get_alert_data_for_risk_engine(lat, lon)
+                temp_risk = calculate_risk(forecast, alert_data=alert_data)
+                advisory_res = generate_advisories(forecast, risk_level=temp_risk.level, alert_data=alert_data)
+
+                # Ground advisories via RAG + Groq synthesis
+                grounded_res = await ground_advisories(
+                    advisory_res,
+                    weather=forecast,
+                    risk_level=temp_risk.level,
+                    location_name=top.name,
+                )
+
+                # Filter items relevant to requested persona/context
+                items_payload = []
+                all_sources = []
+                seen_urls = set()
+
+                for item in grounded_res.items:
+                    item_ctx = item.context.lower()
+                    # If farmer persona requested, exclude non-farming health heat items
+                    if persona and persona.lower() == "farmer":
+                        if "heat" in item_ctx and "farmer" not in item_ctx and "agri" not in item_ctx:
+                            continue
+                    # If health persona requested, exclude general farming items
+                    elif persona and persona.lower() in ("health", "medical"):
+                        if "farmer" in item_ctx or "agri" in item_ctx:
+                            continue
+
+                    item_dict = item.model_dump()
+                    items_payload.append(item_dict)
+                    if item.grounded and item.grounded.sources:
+                        for s in item.grounded.sources:
+                            if s.source_url not in seen_urls:
+                                seen_urls.add(s.source_url)
+                                all_sources.append(s.model_dump())
+
+                result_payload = {
+                    "location_name": top.name,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "risk_level": temp_risk.level.value,
+                    "hazard": hazard,
+                    "persona": persona,
+                    "items": items_payload,
+                    "sources": all_sources,
+                    "summary": grounded_res.summary,
+                }
+
+                summary = (
+                    f"Retrieved RAG-grounded advisory for {top.name} "
+                    f"(persona={persona}, hazard={hazard}): "
+                    f"Risk level {temp_risk.level.value}, "
+                    f"{len(items_payload)} item(s), "
+                    f"{len(all_sources)} official source(s) cited."
+                )
+
+                # Store payload in data_used for API output transparency
+                data_used["get_grounded_advisory"] = result_payload
+
+                # Build clean tool output text for LLM turn
+                formatted_sources = "\n".join([
+                    f"- {s['title']} ({s['source_name']}): {s['source_url']}"
+                    for s in all_sources
+                ])
+                formatted_items = "\n".join([
+                    f"* [{item.get('context', 'Advisory')}] {item.get('title', '')}: {item.get('message', '')}\n"
+                    f"  Action: {item.get('grounded', {}).get('recommended_action', item.get('message', ''))}"
+                    for item in items_payload
+                ])
+
+                tool_text_output = (
+                    f"LOCATION: {top.name} (lat={lat}, lon={lon})\n"
+                    f"COMPOSITE RISK LEVEL: {temp_risk.level.value}\n"
+                    f"WEATHER TELEMETRY: Max Temp {forecast.daily.temperature_2m_max[0]}°C, "
+                    f"Feels Like {forecast.daily.apparent_temperature_max[0]}°C, "
+                    f"Rain {forecast.daily.precipitation_sum[0]}mm ({forecast.daily.precipitation_probability_max[0]}% prob), "
+                    f"Wind {forecast.daily.wind_speed_10m_max[0]}km/h\n\n"
+                    f"GROUNDED ADVISORY DIRECTIVES:\n{formatted_items}\n\n"
+                    f"CITED OFFICIAL SOURCES:\n{formatted_sources}"
+                )
+
         else:
             result_payload = {"error": f"Unknown tool: {tool_name}"}
             summary = f"Unknown tool '{tool_name}'"
@@ -163,6 +261,9 @@ async def _execute_tool(
     tool_calls_made.append(
         ToolCall(tool_name=tool_name, arguments=arguments, result_summary=summary)
     )
+
+    if tool_name == "get_grounded_advisory" and "tool_text_output" in locals():
+        return tool_text_output
 
     return json.dumps(result_payload, default=str)
 
@@ -263,12 +364,23 @@ async def answer_weather_question(
             else:
                 resolved_language = "en"
 
+        # Extract sources from get_grounded_advisory or get_risk if present
+        extracted_sources = []
+        if "get_grounded_advisory" in data_used and "sources" in data_used["get_grounded_advisory"]:
+            extracted_sources = data_used["get_grounded_advisory"]["sources"]
+        elif "get_risk" in data_used and "advisory" in data_used["get_risk"]:
+            advisory = data_used["get_risk"]["advisory"]
+            for item in advisory.get("items", []):
+                if item.get("grounded") and item["grounded"].get("sources"):
+                    extracted_sources.extend(item["grounded"]["sources"])
+
         return ChatResponse(
             answer=final_answer,
             data_used=data_used,
             tool_calls_made=tool_calls_made,
             model=response.model,
             language=resolved_language,
+            sources=extracted_sources,
         )
 
 

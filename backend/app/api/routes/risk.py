@@ -7,10 +7,11 @@ transparent response that shows both the final verdict AND the reasoning.
 
 from __future__ import annotations
 
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.risk import RiskResult
-from app.services.advisory_engine import generate_advisories
+from app.schemas.risk import RiskLevel, RiskResult
+from app.services.advisory_engine import generate_advisories, ground_advisories
 from app.services.alert_service import get_alert_data_for_risk_engine
 from app.services.risk_engine import calculate_risk
 from app.services.weather_service import WeatherServiceError, get_forecast
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api/risk", tags=["risk"])
 async def get_risk(
     lat: float = Query(..., ge=-90.0, le=90.0, description="Latitude (decimal degrees)"),
     lon: float = Query(..., ge=-180.0, le=180.0, description="Longitude (decimal degrees)"),
+    persona: Optional[str] = Query(None, description="Optional persona filter (citizen, farmer, heat)"),
 ) -> RiskResult:
     """
     Returns a `RiskResult` containing:
@@ -40,7 +42,7 @@ async def get_risk(
     - **level** — Low / Moderate / High / Critical
     - **reasons** — plain-English explanation of the score drivers
     - **sub_scores** — per-component breakdown (rainfall, wind, temperature, official warning)
-    - **advisory.items** — active rule-based recommendations (citizen, farmer, heat)
+    - **advisory.items** — active rule-based recommendations (grounded with RAG sources)
     - **advisory.summary** — one-line overall advisory summary
     """
     try:
@@ -56,6 +58,42 @@ async def get_risk(
 
     # Pass 2: generate advisory with the known level, then embed in the final score
     advisory = generate_advisories(weather, risk_level=preliminary.level, alert_data=alert_data)
+
+    # Filter items by persona if requested
+    if persona:
+        p_lower = persona.lower().strip()
+        filtered_items = [
+            item for item in advisory.items
+            if p_lower in item.context.lower() or "all" in item.context.lower()
+        ]
+        if filtered_items:
+            advisory.items = filtered_items
+
+    # RAG Grounding via Groq + Supabase pgvector
+    advisory = await ground_advisories(
+        advisory_result=advisory,
+        weather=weather,
+        risk_level=preliminary.level,
+        location_name=f"lat {lat:.2f}, lon {lon:.2f}",
+    )
+
     result = calculate_risk(weather, alert_data=alert_data, advisory=advisory)
 
+    # Push through WebSocket alert channel for High/Critical risk
+    if result.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+        try:
+            from app.api.routes.websocket import broadcast_alert
+            for item in result.advisory.items:
+                headline = item.grounded.headline if item.grounded else item.title
+                await broadcast_alert({
+                    "type": "risk_escalation",
+                    "severity": result.level.value.lower(),
+                    "location": f"{lat:.2f}, {lon:.2f}",
+                    "headline": headline,
+                    "score": result.score,
+                })
+        except Exception:
+            pass  # Non-blocking WS notification
+
     return result
+
