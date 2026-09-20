@@ -120,3 +120,123 @@ curl.exe -s "http://localhost:8000/api/v1/geocode?q=a"
   }
 }
 ```
+
+---
+
+## IMD Official Alerts Endpoint
+
+### GET /api/v1/alerts/imd
+
+Fetch active official weather alerts from IMD CAP feed with optional filters.
+
+#### 1. List All Active Alerts
+**Command:**
+```powershell
+curl.exe -s "http://localhost:8000/api/v1/alerts/imd"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+  "source": "IMD",
+  "fetched_at": "2026-09-20T18:39:44.395824+00:00",
+  "count": 0,
+  "skipped": 2,
+  "alerts": []
+}
+```
+
+#### 2. Filter Alerts by State
+**Command:**
+```powershell
+curl.exe -s "http://localhost:8000/api/v1/alerts/imd?state=Odisha"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+  "source": "IMD",
+  "fetched_at": "2026-09-20T18:39:51.561822+00:00",
+  "count": 0,
+  "skipped": 2,
+  "alerts": []
+}
+```
+
+#### 3. Alerts by Location Name (q=Ghaziabad)
+**Command:**
+```powershell
+curl.exe -s "http://localhost:8000/api/v1/alerts/imd/by-location?q=Ghaziabad"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+  "location": {
+    "id": 1271308,
+    "name": "Ghaziabad",
+    "latitude": 28.66535,
+    "longitude": 77.43915,
+    "elevation": 214.0,
+    "country": "India",
+    "country_code": "IN",
+    "admin1": "Uttar Pradesh",
+    "admin2": "Ghaziabad",
+    "admin3": "Ghāziābād",
+    "timezone": "Asia/Kolkata",
+    "population": 1199191
+  },
+  "source": "IMD",
+  "fetched_at": "2026-09-20T18:39:59.824420+00:00",
+  "count": 0,
+  "matches": [],
+  "note": "No active IMD alert matched this location at fetch time. This is not a guarantee of safety."
+}
+```
+
+#### 4. Alerts by Coordinates (lat/lon)
+**Command:**
+```powershell
+curl.exe -s "http://localhost:8000/api/v1/alerts/imd/by-location?lat=28.66535&lon=77.43915"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+  "location": {
+    "id": 0,
+    "name": "Coordinates (28.66535, 77.43915)",
+    "latitude": 28.66535,
+    "longitude": 77.43915,
+    "elevation": null,
+    "country": null,
+    "country_code": null,
+    "admin1": null,
+    "admin2": null,
+    "admin3": null,
+    "timezone": null,
+    "population": null
+  },
+  "source": "IMD",
+  "fetched_at": "2026-09-20T18:40:08.239344+00:00",
+  "count": 0,
+  "matches": [],
+  "note": "No active IMD alert matched this location at fetch time. This is not a guarantee of safety."
+}
+```
+
+#### 5. Invalid Latitude (Validation Error)
+**Command:**
+```powershell
+curl.exe -s "http://localhost:8000/api/v1/alerts/imd/by-location?lat=999&lon=77.4"
+```
+
+**Expected Response (422 Unprocessable Entity):**
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "query->lat: Input should be less than or equal to 90"
+  }
+}
+```
