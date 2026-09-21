@@ -13,6 +13,43 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export const INDIAN_STATES = [
+  "All India",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+];
+
 export interface LocationItem {
   id?: string;
   name: string;
@@ -93,6 +130,7 @@ export interface Alert {
 export interface AlertStoreResponse {
   active_count: number;
   alerts: Alert[];
+  error?: boolean;
 }
 
 export interface ToolCall {
@@ -462,24 +500,25 @@ export async function getWeather(lat: number, lon: number): Promise<WeatherRespo
   return fetchDirectOpenMeteoWeather(lat, lon);
 }
 
-export async function getAlerts(lat?: number, lon?: number): Promise<AlertStoreResponse> {
+export async function getAlerts(lat?: number, lon?: number, state: string = "Uttar Pradesh"): Promise<AlertStoreResponse> {
   try {
     let url = `${API_BASE_URL}/api/alerts`;
     if (lat !== undefined && lon !== undefined) {
       url += `?lat=${lat}&lon=${lon}`;
+    } else if (state) {
+      url += `?state=${encodeURIComponent(state)}`;
     }
     const res = await fetch(url);
     if (res.ok) {
       return await res.json();
     }
-    console.warn(`Backend /api/alerts returned HTTP ${res.status}. Returning empty alert list.`);
+    console.warn(`Backend /api/alerts returned HTTP ${res.status}. Returning empty alert list with error flag.`);
   } catch (err) {
-    console.warn("Backend /api/alerts unreachable. Returning empty alert list:", err);
+    console.warn("Backend /api/alerts unreachable. Returning empty alert list with error flag:", err);
   }
 
-  // Do NOT return fabricated alert data — an empty list is the honest answer
-  // when the live IMD feed cannot be reached.
-  return { active_count: 0, alerts: [] };
+  // Do NOT return fabricated alert data — return error flag when backend is unreachable
+  return { active_count: 0, alerts: [], error: true };
 }
 
 export async function sendChat(message: string, sessionId?: string, language: string = "auto"): Promise<ChatResponse> {

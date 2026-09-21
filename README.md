@@ -1,47 +1,52 @@
-# WeatherGPT
+# WeatherGPT ⚡ AI-Powered Weather Intelligence & IMD Emergency Alerts
 
-Rebuild in progress.
+WeatherGPT combines real-time Open-Meteo telemetry, official WMO / IMD CAP emergency alerts, composite risk analysis, and LLM-grounded weather advisories.
 
-## Backend Setup
+---
 
-1. **Create Virtual Environment:**
-   ```bash
-   python -m venv backend/.venv
-   ```
+## 📁 Repository Structure
 
-2. **Activate Virtual Environment:**
-   - Windows (PowerShell):
-     ```powershell
-     .\backend\.venv\Scripts\Activate.ps1
-     ```
-   - Linux/macOS:
-     ```bash
-     source backend/.venv/bin/activate
-     ```
+```text
+WeatherGPT/
+├── backend/          # FastAPI Python backend (CAP ingest, risk engine, WebSockets)
+├── frontend/         # Next.js React frontend (Alert Center, State Selector, Dashboard)
+├── docs/             # Application documentation
+├── README.md
+└── .gitignore
+```
 
-3. **Install Dependencies:**
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
+---
 
-4. **Environment Configuration:**
-   Copy the example environment file to `.env`:
-   ```bash
-   cp backend/.env.example backend/.env
-   ```
+## 🚀 Getting Started
 
-5. **Run the Development Server:**
-   From the `backend/` directory:
-   ```bash
-   cd backend
-   uvicorn app.main:app --reload
-   ```
+### 1. Run Backend (FastAPI)
 
-6. **Interactive Documentation:**
-   Open [http://localhost:8000/docs](http://localhost:8000/docs) in your browser.
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-7. **Run Tests:**
-   From the `backend/` directory:
-   ```bash
-   pytest
-   ```
+- **Interactive API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **State Weather Alerts:** [http://localhost:8000/api/alerts?state=Uttar%20Pradesh](http://localhost:8000/api/alerts?state=Uttar%20Pradesh)
+
+### 2. Run Frontend (Next.js)
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+- **Frontend App:** [http://localhost:3000](http://localhost:3000)
+- **Alert Center & State Selector:** [http://localhost:3000/alerts](http://localhost:3000/alerts)
+
+---
+
+## 🧪 Running Pytest Unit Tests
+
+```powershell
+$env:PYTHONPATH="backend"; python -m pytest backend/tests
+```

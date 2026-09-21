@@ -3,9 +3,9 @@ Alerts API router.
 
 Endpoints
 ---------
-GET  /api/alerts                    → list active alerts (all locations)
-GET  /api/alerts?lat=..&lon=..      → list active alerts near a location
-POST /api/alerts/ingest             → add a new alert + broadcast via WebSocket
+GET  /api/alerts                    → list active alerts for Uttar Pradesh (default) or specified state
+GET  /api/alerts?state=all          → list active alerts for all India
+GET  /api/alerts?lat=..&lon=..      → list active alerts near a location (point-in-polygon)
 POST /api/alerts/refresh            → re-fetch live IMD CAP feed + broadcast via WebSocket
 """
 
@@ -22,7 +22,6 @@ from app.services.alert_service import (
     fetch_and_store_alerts,
     get_active_alerts,
     get_active_alerts_for_location,
-    normalise_alert,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,8 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
     response_model=AlertStoreResponse,
     summary="Get active weather alerts",
     description=(
-        "Returns active alerts from live IMD CAP feed or fallback mock data."
+        "Returns active weather alerts from official IMD CAP feed. "
+        "Defaults to Uttar Pradesh alerts (?state=Uttar%20Pradesh). Use ?state=all for all India."
     ),
 )
 async def list_alerts(
@@ -47,15 +47,19 @@ async def list_alerts(
         None, ge=-180.0, le=180.0,
         description="Filter: longitude of the point of interest"
     ),
+    state: Optional[str] = Query(
+        "Uttar Pradesh",
+        description="Filter: state name (defaults to 'Uttar Pradesh'). Pass 'all' for all India."
+    ),
 ) -> AlertStoreResponse:
     """
-    Returns active alerts. With lat/lon, filters to those affecting the location.
-    Without lat/lon, returns all active alerts.
+    Returns active alerts. With lat/lon, filters to those affecting the location via geometry/polygon.
+    Without lat/lon, filters by state parameter (defaults to Uttar Pradesh).
     """
     if lat is not None and lon is not None:
         alerts = get_active_alerts_for_location(lat, lon)
     else:
-        alerts = get_active_alerts()
+        alerts = get_active_alerts(state=state)
 
     return AlertStoreResponse(active_count=len(alerts), alerts=alerts)
 
@@ -71,7 +75,7 @@ async def refresh_alerts_endpoint() -> AlertStoreResponse:
     Re-fetch live IMD alerts feed and broadcast updates.
     """
     logger.info("=== /api/alerts/refresh endpoint hit ===")
-    alerts = fetch_and_store_alerts()
+    alerts = await fetch_and_store_alerts()
     if alerts:
         from app.api.routes.websocket import broadcast_alert
         try:
@@ -92,18 +96,15 @@ async def ingest_alert(
     raw: dict = Body(
         ...,
         examples={
-            "mock_heavy_rain": {
-                "summary": "Simulate a heavy rain alert for Delhi",
+            "heavy_rain_up": {
+                "summary": "Simulate a heavy rain alert for Uttar Pradesh",
                 "value": {
-                    "identifier": "TEST-001",
+                    "identifier": "TEST-UP-001",
                     "event": "heavy_rain",
-                    "severity": "red",
-                    "areaDesc": "South Delhi",
-                    "latitude": 28.52,
-                    "longitude": 77.18,
-                    "radius_km": 50.0,
-                    "source": "IMD Live",
-                    "description": "Test alert — very heavy rain expected.",
+                    "severity": "orange",
+                    "areaDesc": "East Uttar Pradesh, Lucknow",
+                    "source": "IMD CAP Live",
+                    "description": "Heavy rainfall warning for East Uttar Pradesh.",
                     "is_mock": False,
                 },
             }
@@ -113,8 +114,23 @@ async def ingest_alert(
     """
     Normalise and store an incoming alert, then push it to WebSocket subscribers.
     """
+    from app.services.cap_ingest import map_cap_event_type, map_cap_severity
     try:
-        alert = normalise_alert(raw)
+        alert = Alert(
+            id=raw.get("identifier", "TEST-001"),
+            alert_type=map_cap_event_type(raw.get("event", ""), raw.get("description", "")),
+            severity=map_cap_severity(raw.get("severity", "minor")),
+            affected_location=raw.get("areaDesc", raw.get("affected_location", "Uttar Pradesh")),
+            affected_lat=raw.get("latitude"),
+            affected_lon=raw.get("longitude"),
+            affected_radius_km=raw.get("radius_km"),
+            issue_time=raw.get("issue_time") or raw.get("sent") or "2026-09-21T00:00:00Z",
+            expiry_time=raw.get("expiry_time") or raw.get("expires") or "2026-09-22T00:00:00Z",
+            source=raw.get("source", "IMD CAP Live"),
+            instructions=raw.get("description", raw.get("instructions", "No instructions.")),
+            is_mock=False,
+            area_desc=raw.get("areaDesc"),
+        )
     except (KeyError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid alert payload: {exc}") from exc
 
