@@ -1,73 +1,75 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
+import asyncio
+import logging
+from dotenv import load_dotenv
 
-from app.api.v1.router import api_router
-from app.core.config import settings
-from app.core.errors import WeatherGPTError
-from app.core.http import close_http_client, init_http_client
-from app.core.logging import setup_logging
+load_dotenv()  # loads backend/.env in development; no-op in production
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    setup_logging(settings.LOG_LEVEL)
-    await init_http_client()
-    yield
-    await close_http_client()
-
-
-app = FastAPI(
-    title=settings.APP_NAME,
-    version="0.1.0",
-    lifespan=lifespan,
+# Configure logging so INFO-level messages from the app modules are visible.
+# (Python's root logger defaults to WARNING; without this all logger.info() calls
+# in alert_service.py etc. are silently swallowed.)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
 )
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes.alerts import router as alerts_router
+from app.api.routes.chat import router as chat_router
+from app.api.routes.location import router as location_router
+from app.api.routes.risk import router as risk_router
+from app.api.routes.weather import router as weather_router
+from app.api.routes.websocket import router as websocket_router
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="WeatherGPT API",
+    description="AI-powered weather intelligence and early-warning layer.",
+    version="0.1.0",
+)
+
+# Enable universal CORS for all local dev ports (3000, 3001, 3002) and deployed Vercel frontends
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.exception_handler(WeatherGPTError)
-async def weathergpt_error_handler(request: Request, exc: WeatherGPTError):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": {"code": exc.code, "message": exc.message}},
-    )
+async def _periodic_imd_poller():
+    """Background loop polling IMD CAP RSS feed every 10 minutes."""
+    while True:
+        try:
+            from app.services.alert_service import fetch_and_store_alerts
+            await fetch_and_store_alerts()
+            logger.info("Periodic IMD CAP alerts feed refresh completed.")
+        except Exception as exc:
+            logger.warning("Periodic IMD feed refresh failed: %s", exc)
+        await asyncio.sleep(600)
 
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = exc.errors()
-    messages = [f"{'->'.join(str(loc) for loc in err['loc'])}: {err['msg']}" for err in errors]
-    msg_str = "; ".join(messages) if messages else "Invalid request parameters"
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"error": {"code": "VALIDATION_ERROR", "message": msg_str}},
-    )
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_periodic_imd_poller())
 
 
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    code_map = {
-        404: "NOT_FOUND",
-        405: "METHOD_NOT_ALLOWED",
-        401: "UNAUTHORIZED",
-        403: "FORBIDDEN",
-    }
-    code = code_map.get(exc.status_code, "HTTP_ERROR")
-    message = str(exc.detail) if exc.detail else "HTTP Exception"
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": {"code": code, "message": message}},
-    )
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/health", tags=["meta"], summary="Health check")
+async def health_check():
+    return {"status": "ok"}
 
 
-app.include_router(api_router, prefix="/api/v1")
+# ── Feature routers ───────────────────────────────────────────────────────────
+
+app.include_router(weather_router)
+app.include_router(location_router)
+app.include_router(chat_router)
+app.include_router(risk_router)
+app.include_router(alerts_router)
+app.include_router(websocket_router)

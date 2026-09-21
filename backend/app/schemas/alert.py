@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -100,6 +100,11 @@ class Alert(BaseModel):
     is_mock: bool = Field(
         False,
         description="True if this is synthetic/mock data (not a real official alert)"
+    )
+    area_desc: Optional[str] = Field(None, description="Raw CAP areaDesc text")
+    polygons: List[List[Tuple[float, float]]] = Field(
+        default_factory=list,
+        description="List of polygons, where each polygon is a list of (lat, lon) coordinate tuples"
     )
 
 

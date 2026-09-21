@@ -1,1 +1,0 @@
-Archived v0 prototype. Kept for reference: the frontend will be re-wired to the new API later, and legacy/backend/app/services (risk engine) is used as the rainfall-threshold baseline in model evaluation.
