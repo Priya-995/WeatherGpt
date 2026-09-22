@@ -1,7 +1,9 @@
+import os
 import asyncio
 import logging
 from dotenv import load_dotenv
 
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 load_dotenv()  # loads backend/.env in development; no-op in production
 
 # Configure logging so INFO-level messages from the app modules are visible.

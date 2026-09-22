@@ -42,7 +42,7 @@ from app.services.groq_service import (
 
 from app.services.location_service import GeocodingServiceError, geocode
 from app.services.weather_service import WeatherServiceError, get_forecast
-from app.services.advisory_engine import generate_advisories
+from app.services.rag_advisory_engine import generate_advisories, ground_advisories, fetch_grounded_documents
 from app.services.risk_engine import calculate_risk
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ async def _execute_tool(
                 forecast = await get_forecast(lat, lon)
 
                 from app.services.alert_service import get_alert_data_for_risk_engine
-                from app.services.advisory_engine import ground_advisories
+                from app.services.rag_advisory_engine import ground_advisories
 
                 alert_data = get_alert_data_for_risk_engine(lat, lon)
                 temp_risk = calculate_risk(forecast, alert_data=alert_data)
@@ -243,6 +243,33 @@ async def _execute_tool(
                     f"GROUNDED ADVISORY DIRECTIVES:\n{formatted_items}\n\n"
                     f"CITED OFFICIAL SOURCES:\n{formatted_sources}"
                 )
+
+        elif tool_name == "get_advisory":
+            persona: str = arguments.get("persona", "citizen")
+            query_text: str = arguments.get("query_text", "")
+
+            docs = fetch_grounded_documents(query_text=query_text, persona=persona, match_count=4)
+
+            retrieved_chunks = [
+                {
+                    "hazard_type": doc.get("hazard_type"),
+                    "plain_language_text": doc.get("plain_language_text"),
+                    "official_text": doc.get("official_text"),
+                    "source_url": doc.get("source_url"),
+                    "persona_tags": doc.get("persona_tags"),
+                }
+                for doc in docs
+            ]
+
+            result_payload = {
+                "persona": persona,
+                "query_text": query_text,
+                "retrieved_chunks": retrieved_chunks,
+                "count": len(retrieved_chunks),
+            }
+
+            summary = f"Retrieved {len(retrieved_chunks)} grounded NDMA chunk(s) for persona '{persona}'"
+            data_used["get_advisory"] = result_payload
 
         else:
             result_payload = {"error": f"Unknown tool: {tool_name}"}

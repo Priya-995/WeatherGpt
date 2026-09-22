@@ -34,8 +34,8 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
     response_model=AlertStoreResponse,
     summary="Get active weather alerts",
     description=(
-        "Returns active weather alerts from official IMD CAP feed. "
-        "Defaults to Uttar Pradesh alerts (?state=Uttar%20Pradesh). Use ?state=all for all India."
+        "Returns active weather alerts from official IMD CAP RSS, Subdivision GIS, and District GIS feeds. "
+        "Defaults to Uttar Pradesh alerts (?state=Uttar%20Pradesh). Use ?state=all for all India, or ?district=Belgaum for district filter."
     ),
 )
 async def list_alerts(
@@ -51,15 +51,19 @@ async def list_alerts(
         "Uttar Pradesh",
         description="Filter: state name (defaults to 'Uttar Pradesh'). Pass 'all' for all India."
     ),
+    district: Optional[str] = Query(
+        None,
+        description="Filter: district name (e.g., 'Belgaum', 'Thane', 'Sagar')"
+    ),
 ) -> AlertStoreResponse:
     """
     Returns active alerts. With lat/lon, filters to those affecting the location via geometry/polygon.
-    Without lat/lon, filters by state parameter (defaults to Uttar Pradesh).
+    Without lat/lon, filters by state and optional district parameters.
     """
     if lat is not None and lon is not None:
         alerts = get_active_alerts_for_location(lat, lon)
     else:
-        alerts = get_active_alerts(state=state)
+        alerts = get_active_alerts(state=state, district=district)
 
     return AlertStoreResponse(active_count=len(alerts), alerts=alerts)
 

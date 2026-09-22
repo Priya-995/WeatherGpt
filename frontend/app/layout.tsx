@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 import TopNavBar from "@/components/ui/TopNavBar";
 import Footer from "@/components/Footer";
+import { LocationProvider } from "@/context/LocationContext";
 import "./globals.css";
 
 const inter = Inter({
@@ -37,11 +38,13 @@ export default function RootLayout({
       className={`${inter.variable} ${manrope.variable} h-full bg-[#f8f9fa] text-[#191c1d] antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans bg-[#f8f9fa] text-[#191c1d]">
-        <TopNavBar />
-        <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
-        <Footer />
+        <LocationProvider>
+          <TopNavBar />
+          <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-8">
+            {children}
+          </main>
+          <Footer />
+        </LocationProvider>
       </body>
     </html>
   );
