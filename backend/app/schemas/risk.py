@@ -60,6 +60,12 @@ class AdvisoryItem(BaseModel):
     grounded: Optional[GroundedAdvisory] = Field(
         None, description="Optional LLM-generated RAG grounded advisory details"
     )
+    official_text: Optional[str] = Field(
+        None, description="Original official wording from NDMA/government guidelines"
+    )
+    source_url: Optional[str] = Field(
+        None, description="Source URL of official guideline"
+    )
 
 
 

@@ -162,13 +162,17 @@ export interface GroundedAdvisory {
 }
 
 export interface AdvisoryItem {
-  category: string;
-  use_case: string;
+  category?: string;
+  use_case?: string;
   context?: string;
   title: string;
-  description: string;
-  priority: string;
+  description?: string;
+  message?: string;
+  priority?: string;
+  severity?: string;
   grounded?: GroundedAdvisory;
+  official_text?: string;
+  source_url?: string;
 }
 
 export interface AdvisorySet {
@@ -500,13 +504,22 @@ export async function getWeather(lat: number, lon: number): Promise<WeatherRespo
   return fetchDirectOpenMeteoWeather(lat, lon);
 }
 
-export async function getAlerts(lat?: number, lon?: number, state: string = "Uttar Pradesh"): Promise<AlertStoreResponse> {
+export async function getAlerts(
+  lat?: number,
+  lon?: number,
+  state: string = "Uttar Pradesh",
+  district?: string
+): Promise<AlertStoreResponse> {
   try {
     let url = `${API_BASE_URL}/api/alerts`;
     if (lat !== undefined && lon !== undefined) {
       url += `?lat=${lat}&lon=${lon}`;
-    } else if (state) {
-      url += `?state=${encodeURIComponent(state)}`;
+    } else {
+      const queryState = (state.trim().toLowerCase() === "all india" || state.trim().toLowerCase() === "all") ? "all" : state;
+      url += `?state=${encodeURIComponent(queryState)}`;
+      if (district && district.trim()) {
+        url += `&district=${encodeURIComponent(district.trim())}`;
+      }
     }
     const res = await fetch(url);
     if (res.ok) {
@@ -572,6 +585,8 @@ export async function sendChat(message: string, sessionId?: string, language: st
     language: resolvedLang,
   };
 }
+
+export const postChat = sendChat;
 
 export async function getRisk(lat: number, lon: number, persona?: string): Promise<RiskResult> {
   try {

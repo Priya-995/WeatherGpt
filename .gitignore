@@ -29,7 +29,7 @@ build/
 .env.local
 .env.*.local
 
-# ── OS / Editor artefacts ─────────────────────────────────────────
+# ── OS / Editor / Temp artefacts ───────────────────────────────────
 .DS_Store
 Thumbs.db
 .idea/
@@ -37,3 +37,8 @@ Thumbs.db
 *.swp
 *.swo
 scratch/
+capabilities.xml
+test_district.json
+.pdf_cache/
+*.pdf
+

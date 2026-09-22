@@ -118,7 +118,7 @@ def detect_language(text: str) -> str:
 # Default model — fast, capable, supports parallel tool calls
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "qwen/qwen3.6-27b"
+DEFAULT_MODEL = "qwen/qwen3.8-27b"
 
 
 MAX_TOKENS = 1024
@@ -260,6 +260,33 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                     },
                 },
                 "required": ["location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_advisory",
+            "description": (
+                "Retrieve RAG-grounded safety guidance from official NDMA documents "
+                "for a query and persona ('citizen', 'farmer', 'official'). "
+                "Call this when the user asks safety/precaution questions such as "
+                "'should I spray pesticide', 'kal chhata le jaun kya', or 'is it safe for elderly'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "persona": {
+                        "type": "string",
+                        "enum": ["citizen", "farmer", "official"],
+                        "description": "Target persona ('citizen', 'farmer', 'official')",
+                    },
+                    "query_text": {
+                        "type": "string",
+                        "description": "The safety question or topic to search guidance for",
+                    },
+                },
+                "required": ["persona", "query_text"],
             },
         },
     },

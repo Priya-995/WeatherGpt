@@ -30,10 +30,12 @@ export default function AlertsPage() {
   const [activeSeverity, setActiveSeverity] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "severity">("severity");
 
-  // "state"     -> Filter by Indian State/UT (e.g. Uttar Pradesh, Maharashtra, Delhi, All India)
-  // "district"  -> Filter to specific district coordinates via point-in-polygon
-  const [scope, setScope] = useState<"state" | "district">("state");
-  const [selectedState, setSelectedState] = useState<string>("Uttar Pradesh");
+  // "subdivision" -> Filter by Indian State/Subdivision (e.g. Uttar Pradesh, Maharashtra, All India)
+  // "district"    -> Filter by specific district name & state (IMD District-wise GIS warnings)
+  // "location"    -> Filter to specific coordinates via location search & point-in-polygon
+  const [scope, setScope] = useState<"subdivision" | "district" | "location">("subdivision");
+  const [selectedState, setSelectedState] = useState<string>("All India");
+  const [districtQuery, setDistrictQuery] = useState<string>("");
   const [selectedLocation, setSelectedLocation] = useState<LocationItem>({
     name: "Lucknow",
     latitude: 26.8467,
@@ -45,10 +47,14 @@ export default function AlertsPage() {
   const fetchAlertsData = async () => {
     setError(null);
     try {
-      const res =
-        scope === "district"
-          ? await getAlerts(selectedLocation.latitude, selectedLocation.longitude)
-          : await getAlerts(undefined, undefined, selectedState);
+      let res;
+      if (scope === "location") {
+        res = await getAlerts(selectedLocation.latitude, selectedLocation.longitude);
+      } else if (scope === "district") {
+        res = await getAlerts(undefined, undefined, selectedState, districtQuery);
+      } else {
+        res = await getAlerts(undefined, undefined, selectedState);
+      }
 
       if (res.error) {
         setError("Couldn't reach alert service");
@@ -65,14 +71,14 @@ export default function AlertsPage() {
     }
   };
 
-  // Re-fetch whenever scope, location, or selectedState changes
+  // Re-fetch whenever scope, location, selectedState, or districtQuery changes
   useEffect(() => {
     setLoading(true);
     fetchAlertsData();
 
     const pollId = setInterval(fetchAlertsData, 90_000);
     return () => clearInterval(pollId);
-  }, [scope, selectedLocation, selectedState]);
+  }, [scope, selectedLocation, selectedState, districtQuery]);
 
   const handleRefreshFeed = async () => {
     setRefreshing(true);
@@ -106,7 +112,7 @@ export default function AlertsPage() {
           } else if (data.event === "new_alert" && data.alert) {
             const newAlert: Alert = data.alert;
             setAlerts((prev) => [newAlert, ...prev.filter((a) => a.id !== newAlert.id)]);
-            setLiveNotification(`New Warning Issued for ${newAlert.affected_location || 'Emergency Area'}`);
+            setLiveNotification(`New Live Alert Issued: ${newAlert.affected_location || 'Emergency Region'}`);
             setTimeout(() => setLiveNotification(null), 6000);
           }
         } catch {
@@ -176,38 +182,45 @@ export default function AlertsPage() {
       {liveNotification && (
         <div className="bg-error-container text-on-error-container p-4 rounded-xl shadow-md text-body-sm font-bold flex items-center justify-between animate-bounce border border-error/30">
           <div className="flex items-center space-x-2">
-            <BellRing className="w-4 h-4 text-error" />
-            <span>⚡ EMERGENCY ALERT: {liveNotification}</span>
+            <BellRing className="w-4 h-4 text-error animate-pulse" />
+            <span>⚡ EMERGENCY REAL-TIME ALERT: {liveNotification}</span>
           </div>
         </div>
       )}
 
-      {/* Scope & State Selector Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-surface-container-high">
-        <div className="flex flex-wrap items-center gap-3">
+      {/* Scope & State / District Selector Controls */}
+      <div className="flex flex-col gap-4 bg-surface-container-low p-4 rounded-xl border border-surface-container-high">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-label-caps text-on-surface-variant font-bold flex items-center gap-1">
-              <Globe2 className="w-3.5 h-3.5" /> Scope:
+              <Globe2 className="w-3.5 h-3.5" /> Warning Feed Mode:
             </span>
-            {(["state", "district"] as const).map((s) => (
+            {[
+              { id: "subdivision", label: "Subdivision / State" },
+              { id: "district", label: "District-wise Warnings (GIS)" },
+              { id: "location", label: "Location Coordinates" },
+            ].map((mode) => (
               <button
-                key={s}
+                key={mode.id}
                 type="button"
-                onClick={() => setScope(s)}
+                onClick={() => setScope(mode.id as any)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${
-                  scope === s
+                  scope === mode.id
                     ? "bg-primary text-on-primary shadow-sm"
                     : "bg-surface-container-lowest text-on-surface-variant hover:text-on-surface border border-outline-variant/30"
                 }`}
               >
-                {s === "state" ? "By State / Region" : "My District"}
+                {mode.label}
               </button>
             ))}
           </div>
+        </div>
 
-          {scope === "state" && (
+        {/* Dynamic Controls Row */}
+        <div className="pt-2 border-t border-surface-container-high/60 flex flex-wrap items-center gap-3">
+          {(scope === "subdivision" || scope === "district") && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold text-on-surface-variant">Select State:</span>
+              <span className="text-xs font-bold text-on-surface-variant">State:</span>
               <select
                 value={selectedState}
                 onChange={(e) => setSelectedState(e.target.value)}
@@ -219,38 +232,55 @@ export default function AlertsPage() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={fetchAlertsData}
-                className="bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold px-3 py-1.5 rounded-lg border border-primary/20 transition-all flex items-center gap-1"
-              >
-                <Search className="w-3.5 h-3.5" />
-                Check {selectedState}
-              </button>
+            </div>
+          )}
+
+          {scope === "district" && (
+            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+              <span className="text-xs font-bold text-on-surface-variant shrink-0">District:</span>
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-on-surface-variant/60" />
+                <input
+                  type="text"
+                  placeholder="Search district e.g. Belgaum, Thane, Lucknow, Thrissur, Sagar..."
+                  value={districtQuery}
+                  onChange={(e) => setDistrictQuery(e.target.value)}
+                  className="w-full bg-surface-container-lowest border border-outline-variant/50 rounded-lg pl-8 pr-3 py-1.5 text-xs font-semibold text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              {districtQuery && (
+                <button
+                  type="button"
+                  onClick={() => setDistrictQuery("")}
+                  className="text-xs text-on-surface-variant hover:text-on-surface px-2 py-1 font-semibold"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
+          {scope === "location" && (
+            <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-on-surface bg-surface-container-lowest px-2.5 py-1.5 rounded-lg border border-outline-variant/40 shrink-0">
+                <MapPin className="w-3.5 h-3.5 text-primary" />
+                <span>
+                  {selectedLocation.name}
+                  {selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""}
+                </span>
+              </div>
+              <LocationSearch
+                selectedLocation={selectedLocation}
+                onSelectLocation={setSelectedLocation}
+                className="sm:max-w-xs"
+              />
             </div>
           )}
         </div>
-
-        {scope === "district" && (
-          <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-on-surface bg-surface-container-lowest px-2.5 py-1.5 rounded-lg border border-outline-variant/40 shrink-0">
-              <MapPin className="w-3.5 h-3.5 text-primary" />
-              <span>
-                {selectedLocation.name}
-                {selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""}
-              </span>
-            </div>
-            <LocationSearch
-              selectedLocation={selectedLocation}
-              onSelectLocation={setSelectedLocation}
-              className="sm:max-w-xs"
-            />
-          </div>
-        )}
       </div>
 
       {/* Region Status Banner */}
-      {!loading && !error && scope === "state" && (
+      {!loading && !error && scope !== "location" && (
         <div
           className={`p-4 rounded-xl border text-body-sm font-bold flex items-center justify-between shadow-xs transition-all ${
             sortedAlerts.length > 0
@@ -264,10 +294,10 @@ export default function AlertsPage() {
                 <AlertTriangle className="w-5 h-5 text-error shrink-0" />
                 <div>
                   <span className="font-extrabold text-error">
-                    ALERT: {selectedState} is Currently Affected
+                    ALERT: {districtQuery ? `District '${districtQuery}'` : selectedState} has Active Warnings
                   </span>
                   <p className="text-xs font-normal text-on-surface-variant">
-                    IMD has issued {sortedAlerts.length} active emergency warning(s) covering {selectedState}.
+                    IMD has issued {sortedAlerts.length} active emergency warning(s) covering {districtQuery ? `district '${districtQuery}'` : selectedState}.
                   </p>
                 </div>
               </>
@@ -276,10 +306,10 @@ export default function AlertsPage() {
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <div>
                   <span className="font-bold text-emerald-900">
-                    NOMINAL: No Active IMD Weather Warnings for {selectedState}
+                    NOMINAL: No Active Weather Warnings for {districtQuery ? `District '${districtQuery}'` : selectedState}
                   </span>
                   <p className="text-xs font-normal text-emerald-700">
-                    Official IMD CAP feed reports zero active emergency warnings for {selectedState} at this time.
+                    Official IMD GIS feed reports zero active emergency warnings for {districtQuery ? `district '${districtQuery}'` : selectedState} at this time.
                   </p>
                 </div>
               </>
@@ -327,89 +357,54 @@ export default function AlertsPage() {
         </div>
       </div>
 
-      {/* Main Grid: Bento Alert Cards (Left) + Live Regional Radar Panel (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Bento Alert Cards List (2 cols) */}
-        <div className="lg:col-span-2 space-y-4">
-          {loading ? (
-            <div className="h-64 flex flex-col items-center justify-center bg-surface-container-low rounded-xl border border-surface-container-high space-y-3 text-on-surface-variant text-body-sm">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span>
-                {scope === "district"
-                  ? `Fetching alerts for ${selectedLocation.name}...`
-                  : `Fetching live IMD alerts for ${selectedState}...`}
-              </span>
-            </div>
-          ) : error ? (
-            <div className="p-6 bg-warning-container/40 text-on-surface rounded-xl border border-warning/40 text-body-sm space-y-2">
-              <div className="flex items-center gap-2 font-bold text-warning">
-                <AlertTriangle className="w-4 h-4" />
-                <span>Live Feed Temporarily Unavailable</span>
-              </div>
-              <p className="text-on-surface-variant text-xs">{error}</p>
-              <p className="text-xs text-outline">
-                The IMD CAP feed could not be reached. No warnings are being shown because we
-                will not display fabricated data — check back shortly or use the Refresh button.
-              </p>
-            </div>
-          ) : sortedAlerts.length === 0 ? (
-            <div className="p-12 text-center bg-surface-container-lowest rounded-xl border border-surface-container-high text-on-surface-variant text-body-sm space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-              <div className="font-bold text-on-surface">
-                {scope === "district"
-                  ? `No active warnings for ${selectedLocation.name}${
-                      selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""
-                    }`
-                  : `No active alerts for ${selectedState}`}
-              </div>
-              <p className="text-xs text-outline">
-                The live IMD feed returned zero active alerts for {scope === "district" ? selectedLocation.name : selectedState}. Conditions are nominal.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sortedAlerts.map((alert, idx) => (
-                <AlertCard
-                  key={alert.id}
-                  alert={alert}
-                  featured={idx === 0 && normalizeSeverity(alert.severity) === "critical"}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Live Regional Radar / Radar Panel (Right) */}
-        <div className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-high shadow-sm space-y-4 h-fit">
-          <div className="flex items-center justify-between border-b border-surface-container-high pb-3">
-            <span className="text-label-caps text-on-surface font-bold flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-primary" />
-              Live Radar & Warning Scope
+      {/* Main Content: Bento Alert Cards (Full Width) */}
+      <div className="w-full space-y-4">
+        {loading ? (
+          <div className="h-64 flex flex-col items-center justify-center bg-surface-container-low rounded-xl border border-surface-container-high space-y-3 text-on-surface-variant text-body-sm">
+            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <span>
+              {scope === "district"
+                ? `Fetching alerts for ${selectedLocation.name}...`
+                : `Fetching live IMD alerts for ${selectedState}...`}
             </span>
-            <span className="text-xs font-mono text-outline">IMD Radar Grid</span>
           </div>
-
-          <div className="h-64 bg-surface-container-low rounded-lg border border-outline-variant/40 flex flex-col items-center justify-center space-y-2 text-center p-4">
-            <div className="w-12 h-12 rounded-full border-2 border-primary/40 border-dashed animate-spin flex items-center justify-center" style={{ animationDuration: "12s" }}>
-              <div className="w-4 h-4 rounded-full bg-primary/30" />
+        ) : error ? (
+          <div className="p-6 bg-warning-container/40 text-on-surface rounded-xl border border-warning/40 text-body-sm space-y-2">
+            <div className="flex items-center gap-2 font-bold text-warning">
+              <AlertTriangle className="w-4 h-4" />
+              <span>Live Feed Temporarily Unavailable</span>
             </div>
-            <div className="text-body-sm font-bold text-on-surface">IMD Doppler Radar Active</div>
-            <p className="text-xs text-on-surface-variant max-w-xs">
-              Live radar scans updated every 10 minutes from regional Doppler stations.
+            <p className="text-on-surface-variant text-xs">{error}</p>
+            <p className="text-xs text-outline">
+              The IMD CAP feed could not be reached. No warnings are being shown because we
+              will not display fabricated data — check back shortly or use the Refresh button.
             </p>
           </div>
-
-          <div className="text-xs text-on-surface-variant space-y-1.5 font-mono pt-2 border-t border-surface-container-high">
-            <div className="flex justify-between">
-              <span>Selected Region:</span>
-              <span className="font-bold text-on-surface">{scope === "state" ? selectedState : selectedLocation.name}</span>
+        ) : sortedAlerts.length === 0 ? (
+          <div className="p-12 text-center bg-surface-container-lowest rounded-xl border border-surface-container-high text-on-surface-variant text-body-sm space-y-2">
+            <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+            <div className="font-bold text-on-surface">
+              {scope === "district"
+                ? `No active warnings for ${selectedLocation.name}${
+                    selectedLocation.admin1 ? `, ${selectedLocation.admin1}` : ""
+                  }`
+                : `No active alerts for ${selectedState}`}
             </div>
-            <div className="flex justify-between">
-              <span>Radar Frequency:</span>
-              <span className="font-bold text-on-surface">S-Band (2.7 GHz)</span>
-            </div>
+            <p className="text-xs text-outline">
+              The live IMD feed returned zero active alerts for {scope === "district" ? selectedLocation.name : selectedState}. Conditions are nominal.
+            </p>
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {sortedAlerts.map((alert, idx) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                featured={idx === 0 && normalizeSeverity(alert.severity) === "critical"}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

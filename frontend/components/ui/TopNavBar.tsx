@@ -16,9 +16,12 @@ import {
   X,
 } from "lucide-react";
 
+import { useLocation, STATE_LOCATIONS } from "@/context/LocationContext";
+
 export default function TopNavBar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { selectedLocation, setSelectedState } = useLocation();
 
   const navItems = [
     { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -72,11 +75,22 @@ export default function TopNavBar() {
           })}
         </nav>
 
-        {/* Right utility icons (Location, Language toggle) */}
+        {/* Right utility icons (Working State Selector, Language toggle) */}
         <div className="hidden md:flex items-center space-x-3 text-on-surface-variant">
-          <div className="flex items-center space-x-1 text-xs bg-surface-container-low px-2.5 py-1.5 rounded border border-outline-variant/40">
-            <MapPin className="w-3.5 h-3.5 text-primary" />
-            <span className="font-medium text-on-surface">New Delhi, IN</span>
+          <div className="flex items-center space-x-1 text-xs bg-surface-container-low px-2 py-1 rounded-lg border border-outline-variant/40 shadow-2xs hover:border-primary transition-all">
+            <MapPin className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+            <select
+              value={selectedLocation.stateName}
+              onChange={(e) => setSelectedState(e.target.value)}
+              className="bg-transparent text-xs font-semibold text-on-surface focus:outline-none cursor-pointer py-0.5 pr-1"
+              aria-label="Select State / Location"
+            >
+              {Object.keys(STATE_LOCATIONS).map((st) => (
+                <option key={st} value={st} className="bg-surface-container-lowest text-on-surface">
+                  {STATE_LOCATIONS[st].displayName}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             type="button"

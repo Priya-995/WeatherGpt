@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas.risk import RiskLevel, RiskResult
-from app.services.advisory_engine import generate_advisories, ground_advisories
+from app.services.rag_advisory_engine import generate_advisories, ground_advisories
 from app.services.alert_service import get_alert_data_for_risk_engine
 from app.services.risk_engine import calculate_risk
 from app.services.weather_service import WeatherServiceError, get_forecast
@@ -56,8 +56,8 @@ async def get_risk(
     # Pass 1: score (with real alert data) to get the risk level
     preliminary = calculate_risk(weather, alert_data=alert_data)
 
-    # Pass 2: generate advisory with the known level, then embed in the final score
-    advisory = generate_advisories(weather, risk_level=preliminary.level, alert_data=alert_data)
+    # Pass 2: generate advisory using RAG engine for the selected persona
+    advisory = generate_advisories(weather, risk_result=preliminary, alert_data=alert_data, persona=persona or "citizen")
 
     # Filter items by persona if requested
     if persona:
