@@ -68,7 +68,7 @@ export default function ChatPage() {
       id: Date.now().toString(),
       role: "user",
       content: userText,
-      language: effectiveLang,
+      language: userMsgLang,
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -87,7 +87,7 @@ export default function ChatPage() {
         tool_calls_made: res.tool_calls_made,
         sources: (res as any).sources,
         model: res.model,
-        language: res.language || effectiveLang,
+        language: res.language || userMsgLang,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
