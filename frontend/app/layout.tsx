@@ -39,12 +39,20 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-sans bg-[#f8f9fa] text-[#191c1d]">
         <LocationProvider>
-          <TopNavBar />
-          <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-8">
-            {children}
-          </main>
-          <Footer />
-        </LocationProvider>
+  <TopNavBar />
+
+  {/* Fixed 64px navbar spacing */}
+  <div
+    aria-hidden="true"
+    className="h-16 shrink-0"
+  />
+
+  <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-8">
+    {children}
+  </main>
+
+  <Footer />
+</LocationProvider>
       </body>
     </html>
   );
