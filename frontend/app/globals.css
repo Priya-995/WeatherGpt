@@ -2,36 +2,40 @@
 @import "leaflet/dist/leaflet.css";
 
 @theme {
+  /* Primary colors */
   --color-primary: #00366b;
   --color-primary-container: #1b4d89;
   --color-on-primary: #ffffff;
-  --color-on-primary-container: #98bfff;
+  --color-on-primary-container: #dbeafe;
   --color-primary-fixed: #d5e3ff;
   --color-primary-fixed-dim: #a7c8ff;
   --color-on-primary-fixed: #001b3c;
   --color-on-primary-fixed-variant: #114783;
 
+  /* Secondary colors */
   --color-secondary: #406180;
   --color-secondary-container: #b9dbfe;
   --color-on-secondary: #ffffff;
-  --color-on-secondary-container: #3f607f;
+  --color-on-secondary-container: #1e3a5f;
   --color-secondary-fixed: #cee5ff;
   --color-secondary-fixed-dim: #a8caed;
   --color-on-secondary-fixed: #001d32;
   --color-on-secondary-fixed-variant: #274967;
 
+  /* Tertiary colors */
   --color-tertiary: #562b00;
   --color-tertiary-container: #773e00;
   --color-on-tertiary: #ffffff;
-  --color-on-tertiary-container: #fdac68;
+  --color-on-tertiary-container: #ffe4cf;
   --color-tertiary-fixed: #ffdcc3;
   --color-tertiary-fixed-dim: #ffb77e;
   --color-on-tertiary-fixed: #2f1500;
   --color-on-tertiary-fixed-variant: #6e3900;
 
+  /* Surface colors */
   --color-surface: #f8f9fa;
   --color-surface-dim: #d9dadb;
-  --color-surface-bright: #f8f9fa;
+  --color-surface-bright: #ffffff;
   --color-surface-container-lowest: #ffffff;
   --color-surface-container-low: #f3f4f5;
   --color-surface-container: #edeeef;
@@ -40,95 +44,634 @@
   --color-surface-variant: #e1e3e4;
   --color-surface-tint: #325f9c;
 
-  --color-on-surface: #191c1d;
-  --color-on-surface-variant: #424750;
-  --color-outline: #737781;
-  --color-outline-variant: #c3c6d1;
-  --color-inverse-surface: #2e3132;
-  --color-inverse-on-surface: #f0f1f2;
+  /* Text and outline colors */
+  --color-on-surface: #111827;
+  --color-on-surface-variant: #374151;
+  --color-outline: #64748b;
+  --color-outline-variant: #cbd5e1;
+  --color-inverse-surface: #1e293b;
+  --color-inverse-on-surface: #f8fafc;
   --color-inverse-primary: #a7c8ff;
 
+  /* Error colors */
   --color-error: #ba1a1a;
   --color-error-container: #ffdad6;
   --color-on-error: #ffffff;
   --color-on-error-container: #93000a;
 
+  /* Background */
   --color-background: #f8f9fa;
-  --color-on-background: #191c1d;
+  --color-on-background: #111827;
 
-  --font-inter: "Inter", sans-serif;
-  --font-manrope: "Manrope", sans-serif;
+  /* Tailwind font utilities */
+  --font-sans:
+    var(--font-inter),
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  --font-display:
+    var(--font-manrope),
+    "Manrope",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
 }
 
-/* Custom Stitch Typography Utility Classes */
+/* =========================================
+   Global styles
+   ========================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background-color: #f8f9fa;
+  color: #111827;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+}
+/* Video section takes complete viewport/body width */
+.video-full-width {
+  width: 100vw;
+  max-width: none;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+}
+
+/* Prevent a horizontal scrollbar */
+html,
+body {
+  overflow-x: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: #ffffff;
+  background: rgba(0, 54, 107, 0.85);
+}
+
+.leaflet-container {
+  font-family:
+    var(--font-inter),
+    "Inter",
+    sans-serif;
+}
+
+/* =========================================
+   Typography
+   ========================================= */
+
 .text-metric-display {
-  font-family: var(--font-manrope);
-  font-size: 48px;
-  line-height: 56px;
+  font-family:
+    var(--font-manrope),
+    "Manrope",
+    sans-serif;
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-headline-lg {
+  font-family:
+    var(--font-manrope),
+    "Manrope",
+    sans-serif;
+  font-size: clamp(1.75rem, 3vw, 2.125rem);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  font-weight: 750;
+}
+
+.text-headline-lg-mobile {
+  font-family:
+    var(--font-manrope),
+    "Manrope",
+    sans-serif;
+  font-size: 1.75rem;
+  line-height: 2.25rem;
   letter-spacing: -0.02em;
   font-weight: 700;
 }
 
-.text-headline-lg {
-  font-family: var(--font-manrope);
-  font-size: 32px;
-  line-height: 40px;
-  font-weight: 600;
-}
-
-.text-headline-lg-mobile {
-  font-family: var(--font-manrope);
-  font-size: 28px;
-  line-height: 36px;
-  font-weight: 600;
-}
-
 .text-headline-md {
-  font-family: var(--font-manrope);
-  font-size: 24px;
-  line-height: 32px;
-  font-weight: 600;
+  font-family:
+    var(--font-manrope),
+    "Manrope",
+    sans-serif;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  letter-spacing: -0.018em;
+  font-weight: 700;
 }
 
 .text-headline-sm {
-  font-family: var(--font-manrope);
-  font-size: 20px;
-  line-height: 28px;
-  font-weight: 600;
+  font-family:
+    var(--font-manrope),
+    "Manrope",
+    sans-serif;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  letter-spacing: -0.012em;
+  font-weight: 700;
 }
 
 .text-body-lg {
-  font-family: var(--font-inter);
-  font-size: 18px;
-  line-height: 28px;
-  font-weight: 400;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    sans-serif;
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 450;
 }
 
 .text-body-md {
-  font-family: var(--font-inter);
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    sans-serif;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 450;
 }
 
 .text-body-sm {
-  font-family: var(--font-inter);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 400;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.35rem;
+  font-weight: 450;
 }
 
 .text-label-caps {
-  font-family: var(--font-inter);
-  font-size: 12px;
-  line-height: 16px;
-  letter-spacing: 0.05em;
-  font-weight: 600;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    sans-serif;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  letter-spacing: 0.075em;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
-body {
-  background-color: #f8f9fa;
-  color: #191c1d;
-  font-family: var(--font-inter);
+/* =========================================
+   Shared glass panels
+   ========================================= */
+
+.glass-panel {
+  position: relative;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(7, 20, 43, 0.6),
+      rgba(15, 40, 70, 0.34)
+    ) !important;
+
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* =========================================
+   Target Location panel
+   ========================================= */
+
+/* Apply white text only to the information area.
+   LocationSearch is not affected. */
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  .text-on-surface,
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  .text-on-surface-variant,
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  .text-label-caps {
+  color: #f8fafc !important;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
+}
+
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  h1 {
+  color: #ffffff !important;
+  font-weight: 750;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.72);
+}
+
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  h1 span:first-child {
+  color: #ffffff !important;
+}
+
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  h1 span:not(:first-child) {
+  color: rgba(226, 232, 240, 0.94) !important;
+}
+
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  p {
+  color: rgba(241, 245, 249, 0.9) !important;
+  text-shadow: 0 2px 7px rgba(0, 0, 0, 0.58);
+}
+
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  svg {
+  color: #7dd3fc !important;
+}
+
+/* Weather condition badge */
+.glass-panel:not(.glass-risk)
+  > div:first-child
+  [class*="bg-primary"] {
+  color: #e0f2fe !important;
+  background-color: rgba(14, 165, 233, 0.2) !important;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  text-shadow: none;
+}
+
+/* =========================================
+   Current Telemetry glass section
+   ========================================= */
+
+/* Outer panel */
+.glass-current > * {
+  color: #f8fafc !important;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(7, 20, 43, 0.62),
+      rgba(15, 40, 70, 0.36)
+    ) !important;
+
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* Left-side Current Telemetry information */
+.glass-current > * > :first-child,
+.glass-current
+  > *
+  > :first-child
+  .text-on-surface,
+.glass-current
+  > *
+  > :first-child
+  .text-on-surface-variant,
+.glass-current
+  > *
+  > :first-child
+  .text-label-caps {
+  color: #f8fafc !important;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.68);
+}
+
+/* Temperature */
+.glass-current
+  > *
+  > :first-child
+  [class*="text-primary"] {
+  color: #7dd3fc !important;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.68);
+}
+
+/* Coordinates */
+.glass-current
+  > *
+  > :first-child
+  [class*="font-mono"] {
+  color: rgba(226, 232, 240, 0.88) !important;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+}
+
+/* Right telemetry container and metric cards */
+.glass-current
+  > *
+  [class*="bg-surface-container"],
+.glass-current
+  > *
+  [class*="bg-white"] {
+  background-color: rgba(255, 255, 255, 0.58) !important;
+  border-color: rgba(255, 255, 255, 0.42) !important;
+
+  -webkit-backdrop-filter: blur(10px) saturate(135%);
+  backdrop-filter: blur(10px) saturate(135%);
+}
+
+/* Dark text inside right-side metric area */
+.glass-current > * > :last-child,
+.glass-current > * > :last-child * {
+  color: #111827 !important;
+  text-shadow: none !important;
+}
+
+.glass-current
+  > *
+  > :last-child
+  .text-on-surface-variant,
+.glass-current
+  > *
+  > :last-child
+  .text-label-caps {
+  color: #374151 !important;
+}
+
+.glass-current
+  > *
+  > :last-child
+  svg {
+  color: #475569 !important;
+}
+
+/* =========================================
+   7-Day Forecast glass section
+   ========================================= */
+
+.glass-forecast > * {
+  color: #f8fafc !important;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(3, 13, 32, 0.72),
+      rgba(10, 35, 67, 0.46)
+    ) !important;
+
+  border: 1px solid rgba(148, 197, 255, 0.2) !important;
+
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Forecast headings and main text */
+.glass-forecast
+  .text-on-surface,
+.glass-forecast
+  [class*="font-bold"] {
+  color: #ffffff !important;
+}
+
+.glass-forecast
+  .text-on-surface-variant,
+.glass-forecast
+  .text-label-caps {
+  color: #cbd5e1 !important;
+}
+
+.glass-forecast svg {
+  color: #bae6fd !important;
+}
+
+/* Individual forecast cards */
+.glass-forecast
+  > *
+  [class*="rounded"] {
+  color: #f8fafc !important;
+  background-color: rgba(2, 10, 28, 0.48) !important;
+  border-color: rgba(148, 197, 255, 0.17) !important;
+
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Secondary forecast text */
+.glass-forecast
+  > *
+  [class*="rounded"]
+  .text-on-surface-variant {
+  color: #b9c7da !important;
+}
+
+/* =========================================
+   Location Risk Assessment
+   ========================================= */
+
+/* Risk section heading */
+.glass-risk > h2,
+.glass-risk > h2 span {
+  color: #ffffff !important;
+  font-weight: 750;
+  text-shadow: 0 2px 9px rgba(0, 0, 0, 0.68);
+}
+
+.glass-risk > h2 svg {
+  color: #38bdf8 !important;
+}
+
+/* Individual risk cards */
+.glass-risk > div > * {
+  color: #111827;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.62),
+      rgba(255, 255, 255, 0.4)
+    ) !important;
+
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+
+  -webkit-backdrop-filter: blur(10px) saturate(135%);
+  backdrop-filter: blur(10px) saturate(135%);
+
+  box-shadow:
+    0 7px 22px rgba(0, 0, 0, 0.17),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* Text inside risk cards */
+.glass-risk
+  > div
+  > *
+  .text-on-surface {
+  color: #111827 !important;
+  text-shadow: none !important;
+}
+
+.glass-risk
+  > div
+  > *
+  .text-on-surface-variant {
+  color: #374151 !important;
+  text-shadow: none !important;
+}
+
+.glass-risk
+  > div
+  > *
+  .text-primary {
+  color: #075985 !important;
+  text-shadow: none !important;
+}
+
+/* Keep risk status colors visible */
+.glass-risk
+  > div
+  > *
+  [class*="text-green"] {
+  color: #047857 !important;
+}
+
+.glass-risk
+  > div
+  > *
+  [class*="text-orange"],
+.glass-risk
+  > div
+  > *
+  [class*="text-amber"] {
+  color: #c2410c !important;
+}
+
+.glass-risk
+  > div
+  > *
+  [class*="text-red"] {
+  color: #b91c1c !important;
+}
+
+/* =========================================
+   WeatherGPT CTA text
+   ========================================= */
+
+[class*="bg-primary-container"]
+  .text-on-primary-container {
+  color: #ffffff !important;
+}
+
+[class*="bg-primary-container"] p {
+  color: rgba(239, 246, 255, 0.88);
+}
+
+[class*="bg-primary-container"]
+  .text-label-caps {
+  color: #bfdbfe !important;
+}
+
+/* =========================================
+   Transitions
+   ========================================= */
+
+.glass-panel,
+.glass-current > *,
+.glass-forecast > *,
+.glass-risk > div > * {
+  transition:
+    background 300ms ease,
+    border-color 300ms ease,
+    box-shadow 300ms ease,
+    color 300ms ease;
+}
+
+/* =========================================
+   Responsive typography and glass
+   ========================================= */
+
+@media (max-width: 768px) {
+  .text-metric-display {
+    font-size: 2.5rem;
+    line-height: 1.1;
+  }
+
+  .text-headline-lg {
+    font-size: 1.75rem;
+    line-height: 2.15rem;
+  }
+
+  .text-headline-md {
+    font-size: 1.3rem;
+    line-height: 1.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .glass-panel,
+  .glass-current > *,
+  .glass-forecast > * {
+    -webkit-backdrop-filter: blur(9px) saturate(125%);
+    backdrop-filter: blur(9px) saturate(125%);
+  }
+
+  .glass-panel {
+    border-radius: 0.875rem;
+  }
+}
+
+/* =========================================
+   Accessibility
+   ========================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

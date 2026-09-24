@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -16,123 +16,317 @@ import {
   X,
 } from "lucide-react";
 
-import { useLocation, STATE_LOCATIONS } from "@/context/LocationContext";
+import {
+  useLocation,
+  STATE_LOCATIONS,
+} from "@/context/LocationContext";
 
 export default function TopNavBar() {
   const pathname = usePathname();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { selectedLocation, setSelectedState } = useLocation();
+
+  const [mobileMenuOpen, setMobileMenuOpen] =
+    useState(false);
+
+  const [isScrolled, setIsScrolled] =
+    useState(false);
+
+  const { selectedLocation, setSelectedState } =
+    useLocation();
 
   const navItems = [
-    { label: "Dashboard", href: "/", icon: LayoutDashboard },
-    { label: "Chat", href: "/chat", icon: MessageSquare },
-    { label: "Alerts", href: "/alerts", icon: AlertTriangle },
-    { label: "Risk Map", href: "/risk", icon: Map },
-    { label: "Advisory", href: "/advisory", icon: ClipboardList },
+    {
+      label: "Dashboard",
+      href: "/",
+      icon: LayoutDashboard,
+    },
+    {
+      label: "Chat",
+      href: "/chat",
+      icon: MessageSquare,
+    },
+    {
+      label: "Alerts",
+      href: "/alerts",
+      icon: AlertTriangle,
+    },
+    {
+      label: "Risk Map",
+      href: "/risk",
+      icon: Map,
+    },
+    {
+      label: "Advisory",
+      href: "/advisory",
+      icon: ClipboardList,
+    },
   ];
 
+  // Change navbar background after scrolling
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+
+    // Check initial scroll position
+    handleScroll();
+
+    window.addEventListener(
+      "scroll",
+      handleScroll,
+      { passive: true }
+    );
+
+    return () => {
+      window.removeEventListener(
+        "scroll",
+        handleScroll
+      );
+    };
+  }, []);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
   return (
-    <header className="bg-surface-container-lowest border-b border-surface-container-high text-on-surface sticky top-0 z-50 shadow-sm">
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <header
+      className={`
+        fixed left-0 right-0 top-0 z-[100]
+        w-full border-b
+        text-on-surface
+        transition-all duration-500 ease-in-out
+        ${
+          isScrolled
+            ? "border-white/30 bg-white/60 shadow-lg backdrop-blur-xl"
+            : "border-surface-container-high bg-white shadow-sm"
+        }
+      `}
+    >
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Brand Logo */}
-        <Link href="/" className="flex items-center space-x-2.5 group">
-          <div className="p-2 bg-primary text-on-primary rounded-lg shadow-sm group-hover:scale-105 transition-transform">
-            <ShieldAlert className="w-5 h-5" />
+        <Link
+          href="/"
+          className="group flex items-center space-x-2.5"
+        >
+          <div className="rounded-lg bg-primary p-2 text-on-primary shadow-sm transition-transform group-hover:scale-105">
+            <ShieldAlert className="h-5 w-5" />
           </div>
-          <div>
-            <span className="text-headline-sm font-bold text-primary tracking-tight">
+
+          <div className="flex items-center">
+            <span className="text-headline-sm font-bold tracking-tight text-primary">
               WeatherGPT
             </span>
-            <span className="ml-2 text-[10px] text-label-caps text-on-surface-variant bg-surface-container px-2 py-0.5 rounded border border-outline-variant/40">
+
+            <span
+              className={`
+                ml-2 rounded border px-2 py-0.5
+                text-[10px] text-label-caps
+                transition-all duration-500
+                ${
+                  isScrolled
+                    ? "border-white/40 bg-white/45 text-slate-700"
+                    : "border-outline-variant/40 bg-surface-container text-on-surface-variant"
+                }
+              `}
+            >
               IMD / MoES
             </span>
           </div>
         </Link>
 
-        {/* Desktop Navigation with Active Underline in Primary Color */}
-        <nav className="hidden md:flex items-center space-x-1 lg:space-x-6">
+        {/* Desktop Navigation */}
+        <nav className="hidden items-center space-x-1 md:flex lg:space-x-6">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive =
+              pathname === item.href;
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`relative py-5 text-body-sm font-medium transition-colors flex items-center space-x-1.5 ${
-                  isActive
-                    ? "text-primary font-semibold"
-                    : "text-on-surface-variant hover:text-primary"
-                }`}
+                className={`
+                  relative flex items-center
+                  space-x-1.5 py-5
+                  text-body-sm font-medium
+                  transition-colors duration-300
+                  ${
+                    isActive
+                      ? "font-semibold text-primary"
+                      : "text-slate-700 hover:text-primary"
+                  }
+                `}
               >
-                <Icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-outline"}`} />
+                <Icon
+                  className={`
+                    h-4 w-4
+                    ${
+                      isActive
+                        ? "text-primary"
+                        : "text-slate-500"
+                    }
+                  `}
+                />
+
                 <span>{item.label}</span>
-                {/* Active-state underline in primary color */}
+
                 {isActive && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-md" />
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-md bg-primary" />
                 )}
               </Link>
             );
           })}
         </nav>
 
-        {/* Right utility icons (Working State Selector, Language toggle) */}
-        <div className="hidden md:flex items-center space-x-3 text-on-surface-variant">
-          <div className="flex items-center space-x-1 text-xs bg-surface-container-low px-2 py-1 rounded-lg border border-outline-variant/40 shadow-2xs hover:border-primary transition-all">
-            <MapPin className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+        {/* Desktop Right Utilities */}
+        <div className="hidden items-center space-x-3 text-on-surface-variant md:flex">
+          {/* State selector */}
+          <div
+            className={`
+              flex items-center space-x-1
+              rounded-lg border px-2 py-1
+              text-xs shadow-sm
+              transition-all duration-300
+              hover:border-primary
+              ${
+                isScrolled
+                  ? "border-white/50 bg-white/55"
+                  : "border-outline-variant/40 bg-surface-container-low"
+              }
+            `}
+          >
+            <MapPin className="ml-1 h-3.5 w-3.5 shrink-0 text-primary" />
+
             <select
               value={selectedLocation.stateName}
-              onChange={(e) => setSelectedState(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-on-surface focus:outline-none cursor-pointer py-0.5 pr-1"
+              onChange={(event) =>
+                setSelectedState(
+                  event.target.value
+                )
+              }
+              className="cursor-pointer bg-transparent py-0.5 pr-1 text-xs font-semibold text-slate-800 focus:outline-none"
               aria-label="Select State / Location"
             >
-              {Object.keys(STATE_LOCATIONS).map((st) => (
-                <option key={st} value={st} className="bg-surface-container-lowest text-on-surface">
-                  {STATE_LOCATIONS[st].displayName}
-                </option>
-              ))}
+              {Object.keys(STATE_LOCATIONS).map(
+                (state) => (
+                  <option
+                    key={state}
+                    value={state}
+                    className="bg-white text-slate-900"
+                  >
+                    {
+                      STATE_LOCATIONS[state]
+                        .displayName
+                    }
+                  </option>
+                )
+              )}
             </select>
           </div>
+
+          {/* Language selector */}
           <button
             type="button"
-            className="p-1.5 hover:bg-surface-container rounded-lg text-on-surface-variant hover:text-primary transition-colors"
+            className={`
+              rounded-lg p-1.5
+              text-slate-600
+              transition-colors duration-300
+              hover:bg-white/50
+              hover:text-primary
+            `}
             title="Language selector"
             aria-label="Select Language"
           >
-            <Languages className="w-4 h-4" />
+            <Languages className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Mobile Hamburger Toggle */}
-        <div className="md:hidden flex items-center space-x-2">
+        {/* Mobile Menu Button */}
+        <div className="flex items-center space-x-2 md:hidden">
           <button
             type="button"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-lg bg-surface-container border border-outline-variant/40 text-on-surface-variant focus:outline-none"
-            aria-label="Toggle Navigation Menu"
+            onClick={() =>
+              setMobileMenuOpen(
+                (previous) => !previous
+              )
+            }
+            className={`
+              rounded-lg border p-2
+              text-slate-700
+              transition-all duration-300
+              focus:outline-none
+              ${
+                isScrolled
+                  ? "border-white/50 bg-white/55"
+                  : "border-outline-variant/40 bg-surface-container"
+              }
+            `}
+            aria-label={
+              mobileMenuOpen
+                ? "Close Navigation Menu"
+                : "Open Navigation Menu"
+            }
+            aria-expanded={mobileMenuOpen}
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {mobileMenuOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
           </button>
         </div>
       </div>
 
-      {/* Mobile Menu Drawer */}
+      {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-surface-container-lowest border-b border-surface-container-high px-4 pt-2 pb-4 space-y-1 shadow-lg">
+        <div
+          className={`
+            space-y-1 border-b px-4 pb-4 pt-2
+            shadow-lg backdrop-blur-xl
+            md:hidden
+            ${
+              isScrolled
+                ? "border-white/30 bg-white/80"
+                : "border-surface-container-high bg-white"
+            }
+          `}
+        >
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive =
+              pathname === item.href;
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileMenuOpen(false)}
-                className={`w-full px-4 py-3 rounded-lg text-body-sm font-semibold transition-all flex items-center space-x-3 ${
-                  isActive
-                    ? "bg-primary-container text-on-primary-container"
-                    : "text-on-surface-variant hover:bg-surface-container"
-                }`}
+                onClick={() =>
+                  setMobileMenuOpen(false)
+                }
+                className={`
+                  flex w-full items-center
+                  space-x-3 rounded-lg
+                  px-4 py-3 text-body-sm
+                  font-semibold transition-all
+                  ${
+                    isActive
+                      ? "bg-primary text-white"
+                      : "text-slate-700 hover:bg-white/60 hover:text-primary"
+                  }
+                `}
               >
-                <Icon className={`w-4 h-4 ${isActive ? "text-on-primary-container" : "text-outline"}`} />
+                <Icon
+                  className={`
+                    h-4 w-4
+                    ${
+                      isActive
+                        ? "text-white"
+                        : "text-slate-500"
+                    }
+                  `}
+                />
+
                 <span>{item.label}</span>
               </Link>
             );
